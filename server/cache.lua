@@ -7,7 +7,7 @@ LonexDiscord = LonexDiscord or {}
 LonexDiscord.Cache = {}
 
 local Cache = LonexDiscord.Cache
-local Utils = LonexDiscord.Utils
+local function Utils() return LonexDiscord.Utils end
 
 local Stores = {
     guild = { data = {}, ttl = Config.Cache.GuildTTL },
@@ -19,14 +19,14 @@ local Stores = {
 local function CreateEntry(value, ttl)
     return {
         value = value,
-        createdAt = Utils.GetTime(),
-        expiresAt = Utils.GetTime() + ttl,
+        createdAt = Utils().GetTime(),
+        expiresAt = Utils().GetTime() + ttl,
         hits = 0
     }
 end
 
 local function IsExpired(entry)
-    return Utils.GetTime() > entry.expiresAt
+    return Utils().GetTime() > entry.expiresAt
 end
 
 local function UpdateAccessOrder(store, key)
@@ -161,7 +161,7 @@ function Cache.GetRoleById(id)
     local roles = Cache.GetRoles()
     if not roles then return nil end
     
-    id = Utils.ToSnowflake(id)
+    id = Utils().ToSnowflake(id)
     for _, role in ipairs(roles) do
         if role.id == id then
             return role

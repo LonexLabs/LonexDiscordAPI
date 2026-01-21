@@ -1,7 +1,4 @@
---[[
-    LonexDiscordAPI - Main Server Script
-    https://github.com/LonexLabs/LonexDiscordAPI
-]]
+-- LonexDiscordAPI Server
 
 local REQUIRED_RESOURCE_NAME = 'LonexDiscordAPI'
 
@@ -800,20 +797,25 @@ local function ValidateToken()
 end
 
 ---Fetch guild information
+---@param isInitial? boolean If true, always log (for startup)
 ---@return boolean success
 ---@return table|nil guildData
-local function FetchGuildInfo()
-    Utils.Info('Fetching guild information...')
+local function FetchGuildInfo(isInitial)
+    if isInitial or Config.LogCacheRefresh then
+        Utils.Info('Fetching guild information...')
+    end
     
     local response = Http.Get(string.format('/guilds/%s?with_counts=true', Config.GuildId))
     
     if response.success and response.data then
         local guild = response.data
         
-        Utils.Info('Connected to guild: %s (%d members)', 
-            guild.name, 
-            guild.approximate_member_count or 0
-        )
+        if isInitial or Config.LogCacheRefresh then
+            Utils.Info('Connected to guild: %s (%d members)', 
+                guild.name, 
+                guild.approximate_member_count or 0
+            )
+        end
         
         -- Cache guild info
         Cache.SetGuild({
@@ -835,10 +837,13 @@ local function FetchGuildInfo()
 end
 
 ---Fetch all guild roles
+---@param isInitial? boolean If true, always log (for startup)
 ---@return boolean success
 ---@return table|nil roles
-local function FetchGuildRoles()
-    Utils.Info('Fetching guild roles...')
+local function FetchGuildRoles(isInitial)
+    if isInitial or Config.LogCacheRefresh then
+        Utils.Info('Fetching guild roles...')
+    end
     
     local response = Http.Get(string.format('/guilds/%s/roles', Config.GuildId))
     
@@ -850,7 +855,9 @@ local function FetchGuildRoles()
             return a.position > b.position
         end)
         
-        Utils.Info('Loaded %d roles', #roles)
+        if isInitial or Config.LogCacheRefresh then
+            Utils.Info('Loaded %d roles', #roles)
+        end
         
         -- Cache roles
         Cache.SetRoles(roles)
@@ -865,7 +872,7 @@ end
 -- INITIALIZATION
 
 local function Initialize()
-    Utils.Info('Initializing LonexDiscordAPI v1.4.0...')
+    Utils.Info('Initializing LonexDiscordAPI v1.1.0...')
     
     -- Check configuration
     if Config.BotToken == '' then
@@ -891,7 +898,7 @@ local function Initialize()
     
     -- Fetch guild info
     if Config.Startup.FetchGuildInfo then
-        local success = FetchGuildInfo()
+        local success = FetchGuildInfo(true)
         if not success then
             InitializationError = 'Failed to fetch guild info'
             return false
@@ -900,7 +907,7 @@ local function Initialize()
     
     -- Fetch roles
     if Config.Startup.FetchRoles then
-        local success = FetchGuildRoles()
+        local success = FetchGuildRoles(true)
         if not success then
             InitializationError = 'Failed to fetch roles'
             return false
@@ -2118,3 +2125,638 @@ AddEventHandler('playerDropped', function(reason)
         API.InvalidateMember(discordId)
     end
 end)
+
+local WeaponVehicleModule = {}
+
+function WeaponVehicleModule.GetAllowedWeapons(roleIds)
+    if not Config.WeaponPermissions or not Config.WeaponPermissions.Enabled then
+        return {}, true
+    end
+    
+    if not Config.WeaponPermissions.Roles or not roleIds then
+        return {}, false
+    end
+    
+    local allowed = {}
+    local noRestrictions = false
+    
+    for _, roleId in ipairs(roleIds) do
+        local roleConfig = Config.WeaponPermissions.Roles[roleId]
+        if roleConfig then
+            if #roleConfig == 0 then
+                noRestrictions = true
+                return {}, true
+            end
+            for _, weapon in ipairs(roleConfig) do
+                allowed[weapon] = true
+            end
+        end
+    end
+    
+    local result = {}
+    for weapon in pairs(allowed) do
+        table.insert(result, weapon)
+    end
+    
+    return result, noRestrictions
+end
+
+function WeaponVehicleModule.GetAllowedVehicles(roleIds)
+    if not Config.VehiclePermissions or not Config.VehiclePermissions.Enabled then
+        return {}, true
+    end
+    
+    if not Config.VehiclePermissions.Roles or not roleIds then
+        return {}, false
+    end
+    
+    local allowed = {}
+    local noRestrictions = false
+    
+    for _, roleId in ipairs(roleIds) do
+        local roleConfig = Config.VehiclePermissions.Roles[roleId]
+        if roleConfig then
+            if #roleConfig == 0 then
+                noRestrictions = true
+                return {}, true
+            end
+            for _, vehicle in ipairs(roleConfig) do
+                allowed[vehicle] = true
+            end
+        end
+    end
+    
+    local result = {}
+    for vehicle in pairs(allowed) do
+        table.insert(result, vehicle)
+    end
+    
+    return result, noRestrictions
+end
+
+function WeaponVehicleModule.GetAllowedPeds(roleIds)
+    if not Config.PedPermissions or not Config.PedPermissions.Enabled then
+        return {}, true
+    end
+    
+    if not Config.PedPermissions.Roles or not roleIds then
+        return {}, false
+    end
+    
+    local allowed = {}
+    local noRestrictions = false
+    
+    for _, roleId in ipairs(roleIds) do
+        local roleConfig = Config.PedPermissions.Roles[roleId]
+        if roleConfig then
+            if #roleConfig == 0 then
+                noRestrictions = true
+                return {}, true
+            end
+            for _, ped in ipairs(roleConfig) do
+                allowed[ped] = true
+            end
+        end
+    end
+    
+    local result = {}
+    for ped in pairs(allowed) do
+        table.insert(result, ped)
+    end
+    
+    return result, noRestrictions
+end
+
+function WeaponVehicleModule.SyncPermissions(source)
+    local discordId = Utils.GetDiscordIdentifier(source)
+    
+    if not discordId then
+        TriggerClientEvent('LonexDiscord:SyncAllPermissions', source, {
+            weapons = {},
+            vehicles = {},
+            peds = {},
+            noWeaponRestrictions = false,
+            noVehicleRestrictions = false,
+            noPedRestrictions = false,
+        })
+        return
+    end
+    
+    local roleIds, err = API.GetMemberRoleIds(discordId)
+    
+    if not roleIds then
+        roleIds = {}
+    end
+    
+    local weapons, noWeaponRestrictions = WeaponVehicleModule.GetAllowedWeapons(roleIds)
+    local vehicles, noVehicleRestrictions = WeaponVehicleModule.GetAllowedVehicles(roleIds)
+    local peds, noPedRestrictions = WeaponVehicleModule.GetAllowedPeds(roleIds)
+    
+    TriggerClientEvent('LonexDiscord:SyncAllPermissions', source, {
+        weapons = weapons,
+        vehicles = vehicles,
+        peds = peds,
+        noWeaponRestrictions = noWeaponRestrictions,
+        noVehicleRestrictions = noVehicleRestrictions,
+        noPedRestrictions = noPedRestrictions,
+    })
+    
+    if Config.Debug then
+        Utils.Debug('Synced weapon/vehicle/ped permissions for player %d: %d weapons, %d vehicles, %d peds', 
+            source, #weapons, #vehicles, #peds)
+    end
+end
+
+RegisterNetEvent('LonexDiscord:RequestPermissions')
+AddEventHandler('LonexDiscord:RequestPermissions', function()
+    local source = source
+    WeaponVehicleModule.SyncPermissions(source)
+end)
+
+exports('GetAllowedWeapons', function(source)
+    local discordId = Utils.GetDiscordIdentifier(source)
+    if not discordId then return {}, false end
+    
+    local roleIds = API.GetMemberRoleIds(discordId)
+    return WeaponVehicleModule.GetAllowedWeapons(roleIds or {})
+end)
+
+exports('GetAllowedVehicles', function(source)
+    local discordId = Utils.GetDiscordIdentifier(source)
+    if not discordId then return {}, false end
+    
+    local roleIds = API.GetMemberRoleIds(discordId)
+    return WeaponVehicleModule.GetAllowedVehicles(roleIds or {})
+end)
+
+exports('CanUseWeapon', function(source, weaponName)
+    if not Config.WeaponPermissions or not Config.WeaponPermissions.Enabled then
+        return true
+    end
+    
+    local restricted = false
+    if Config.WeaponPermissions.RestrictedWeapons then
+        for _, w in ipairs(Config.WeaponPermissions.RestrictedWeapons) do
+            if w:upper() == weaponName:upper() then
+                restricted = true
+                break
+            end
+        end
+    end
+    
+    if not restricted then
+        return true
+    end
+    
+    local weapons, noRestrictions = exports.LonexDiscordAPI:GetAllowedWeapons(source)
+    
+    if noRestrictions then
+        return true
+    end
+    
+    for _, w in ipairs(weapons) do
+        if w:upper() == weaponName:upper() then
+            return true
+        end
+    end
+    
+    return false
+end)
+
+exports('CanUseVehicle', function(source, vehicleName)
+    if not Config.VehiclePermissions or not Config.VehiclePermissions.Enabled then
+        return true
+    end
+    
+    local restricted = false
+    if Config.VehiclePermissions.RestrictedVehicles then
+        for _, v in ipairs(Config.VehiclePermissions.RestrictedVehicles) do
+            if v:lower() == vehicleName:lower() then
+                restricted = true
+                break
+            end
+        end
+    end
+    
+    if not restricted then
+        return true
+    end
+    
+    local vehicles, noRestrictions = exports.LonexDiscordAPI:GetAllowedVehicles(source)
+    
+    if noRestrictions then
+        return true
+    end
+    
+    for _, v in ipairs(vehicles) do
+        if v:lower() == vehicleName:lower() then
+            return true
+        end
+    end
+    
+    return false
+end)
+
+exports('GetAllowedPeds', function(source)
+    local discordId = Utils.GetDiscordIdentifier(source)
+    if not discordId then return {}, false end
+    
+    local roleIds = API.GetMemberRoleIds(discordId)
+    return WeaponVehicleModule.GetAllowedPeds(roleIds or {})
+end)
+
+exports('CanUsePed', function(source, pedName)
+    if not Config.PedPermissions or not Config.PedPermissions.Enabled then
+        return true
+    end
+    
+    local restricted = false
+    if Config.PedPermissions.RestrictedPeds then
+        for _, p in ipairs(Config.PedPermissions.RestrictedPeds) do
+            if p:lower() == pedName:lower() then
+                restricted = true
+                break
+            end
+        end
+    end
+    
+    if not restricted then
+        return true
+    end
+    
+    local peds, noRestrictions = exports.LonexDiscordAPI:GetAllowedPeds(source)
+    
+    if noRestrictions then
+        return true
+    end
+    
+    for _, p in ipairs(peds) do
+        if p:lower() == pedName:lower() then
+            return true
+        end
+    end
+    
+    return false
+end)
+
+exports('SyncWeaponVehiclePermissions', function(source)
+    WeaponVehicleModule.SyncPermissions(source)
+end)
+
+exports('SyncAllRestrictionPermissions', function(source)
+    WeaponVehicleModule.SyncPermissions(source)
+end)
+
+LonexDiscord.WeaponVehicle = WeaponVehicleModule
+
+-- CHAT ROLES MODULE
+
+local ChatRolesModule = {}
+local PlayerChatRoles = {}
+
+function ChatRolesModule.GetPlayerChatRole(source)
+    if not Config.ChatRoles or not Config.ChatRoles.Enabled then
+        return nil
+    end
+    
+    -- Check cache first
+    if PlayerChatRoles[source] then
+        return PlayerChatRoles[source]
+    end
+    
+    local discordId = Utils.GetDiscordIdentifier(source)
+    
+    if not discordId then
+        return Config.ChatRoles.DefaultRole
+    end
+    
+    local roleIds, err = API.GetMemberRoleIds(discordId)
+    
+    if not roleIds then
+        return Config.ChatRoles.DefaultRole
+    end
+    
+    -- Convert roleIds to a set for faster lookup
+    local playerRoleSet = {}
+    for _, roleId in ipairs(roleIds) do
+        playerRoleSet[roleId] = true
+    end
+    
+    -- Find highest priority role (last in list that player has)
+    local highestRole = Config.ChatRoles.DefaultRole
+    
+    if Config.ChatRoles.Roles then
+        for _, roleConfig in ipairs(Config.ChatRoles.Roles) do
+            if playerRoleSet[roleConfig.roleId] then
+                highestRole = roleConfig
+            end
+        end
+    end
+    
+    -- Cache it
+    PlayerChatRoles[source] = highestRole
+    
+    return highestRole
+end
+
+function ChatRolesModule.GetChatPrefix(source)
+    local role = ChatRolesModule.GetPlayerChatRole(source)
+    
+    if role and role.prefix then
+        return role.prefix
+    end
+    
+    return ''
+end
+
+function ChatRolesModule.RefreshPlayerRole(source)
+    PlayerChatRoles[source] = nil
+    return ChatRolesModule.GetPlayerChatRole(source)
+end
+
+function ChatRolesModule.ClearPlayerRole(source)
+    PlayerChatRoles[source] = nil
+end
+
+-- Clear chat role cache on disconnect
+AddEventHandler('playerDropped', function()
+    local source = source
+    ChatRolesModule.ClearPlayerRole(source)
+end)
+
+-- Chat message handler
+AddEventHandler('chatMessage', function(source, name, message)
+    if not Config.ChatRoles or not Config.ChatRoles.Enabled then
+        return
+    end
+    
+    local prefix = ChatRolesModule.GetChatPrefix(source)
+    
+    if prefix and prefix ~= '' then
+        -- Cancel original message
+        CancelEvent()
+        
+        -- Send modified message with prefix
+        TriggerClientEvent('chat:addMessage', -1, {
+            args = { prefix .. name, message },
+            color = { 255, 255, 255 }
+        })
+    end
+end)
+
+exports('GetPlayerChatRole', function(source)
+    return ChatRolesModule.GetPlayerChatRole(source)
+end)
+
+exports('GetChatPrefix', function(source)
+    return ChatRolesModule.GetChatPrefix(source)
+end)
+
+exports('RefreshPlayerChatRole', function(source)
+    return ChatRolesModule.RefreshPlayerRole(source)
+end)
+
+LonexDiscord.ChatRoles = ChatRolesModule
+
+-- HEADTAGS MODULE
+
+local HeadTagsModule = {}
+local PlayerAvailableTags = {}
+local PlayerSelectedTag = {}
+local PlayerHeadTagSettings = {}
+
+function HeadTagsModule.GetPlayerAvailableTags(source)
+    if not Config.HeadTags or not Config.HeadTags.Enabled then
+        return {}
+    end
+    
+    if PlayerAvailableTags[source] then
+        return PlayerAvailableTags[source]
+    end
+    
+    local discordId = Utils.GetDiscordIdentifier(source)
+    local available = {}
+    
+    -- Always add default tag first
+    if Config.HeadTags.DefaultTag then
+        table.insert(available, Config.HeadTags.DefaultTag)
+    end
+    
+    if discordId then
+        local roleIds, err = API.GetMemberRoleIds(discordId)
+        
+        if roleIds then
+            local playerRoleSet = {}
+            for _, roleId in ipairs(roleIds) do
+                playerRoleSet[roleId] = true
+            end
+            
+            if Config.HeadTags.Roles then
+                for _, roleConfig in ipairs(Config.HeadTags.Roles) do
+                    if playerRoleSet[roleConfig.roleId] then
+                        table.insert(available, roleConfig)
+                    end
+                end
+            end
+        end
+    end
+    
+    PlayerAvailableTags[source] = available
+    return available
+end
+
+function HeadTagsModule.GetPlayerHeadTag(source)
+    if not Config.HeadTags or not Config.HeadTags.Enabled then
+        return nil
+    end
+    
+    local available = HeadTagsModule.GetPlayerAvailableTags(source)
+    local selectedIndex = PlayerSelectedTag[source] or #available
+    
+    if selectedIndex > #available then
+        selectedIndex = #available
+    end
+    if selectedIndex < 1 then
+        selectedIndex = 1
+    end
+    
+    return available[selectedIndex] or Config.HeadTags.DefaultTag
+end
+
+function HeadTagsModule.SetPlayerSelectedTag(source, index)
+    local available = HeadTagsModule.GetPlayerAvailableTags(source)
+    
+    if index >= 1 and index <= #available then
+        PlayerSelectedTag[source] = index
+        HeadTagsModule.BroadcastPlayerTag(source)
+        return true
+    end
+    
+    return false
+end
+
+function HeadTagsModule.GetPlayerSettings(source)
+    if not PlayerHeadTagSettings[source] then
+        PlayerHeadTagSettings[source] = {
+            showOthers = Config.HeadTags.DefaultShowOthers ~= false,
+            showOwn = Config.HeadTags.DefaultShowOwn ~= false,
+            selectedIndex = nil,
+        }
+    end
+    return PlayerHeadTagSettings[source]
+end
+
+function HeadTagsModule.SetPlayerSettings(source, settings)
+    PlayerHeadTagSettings[source] = settings
+end
+
+function HeadTagsModule.RefreshPlayerHeadTag(source)
+    PlayerAvailableTags[source] = nil
+    PlayerSelectedTag[source] = nil
+    local tag = HeadTagsModule.GetPlayerHeadTag(source)
+    HeadTagsModule.BroadcastPlayerTag(source)
+    return tag
+end
+
+function HeadTagsModule.ClearPlayerHeadTag(source)
+    PlayerAvailableTags[source] = nil
+    PlayerSelectedTag[source] = nil
+    PlayerHeadTagSettings[source] = nil
+end
+
+function HeadTagsModule.GetAllPlayerTags()
+    local tags = {}
+    local players = GetPlayers()
+    
+    for _, playerId in ipairs(players) do
+        local source = tonumber(playerId)
+        local tag = HeadTagsModule.GetPlayerHeadTag(source)
+        if tag then
+            tags[source] = {
+                tag = tag,
+                name = GetPlayerName(source) or 'Unknown',
+            }
+        end
+    end
+    
+    return tags
+end
+
+function HeadTagsModule.BroadcastPlayerTag(source)
+    local tag = HeadTagsModule.GetPlayerHeadTag(source)
+    local name = GetPlayerName(source) or 'Unknown'
+    
+    TriggerClientEvent('LonexDiscord:HeadTags:UpdatePlayerTag', -1, source, {
+        tag = tag,
+        name = name,
+    })
+end
+
+function HeadTagsModule.SyncAllTagsToPlayer(targetSource)
+    local allTags = HeadTagsModule.GetAllPlayerTags()
+    local settings = HeadTagsModule.GetPlayerSettings(targetSource)
+    local available = HeadTagsModule.GetPlayerAvailableTags(targetSource)
+    local selectedIndex = PlayerSelectedTag[targetSource] or #available
+    
+    TriggerClientEvent('LonexDiscord:HeadTags:SyncAll', targetSource, allTags, settings, available, selectedIndex)
+end
+
+-- Clear headtag cache on disconnect
+AddEventHandler('playerDropped', function()
+    local source = source
+    HeadTagsModule.ClearPlayerHeadTag(source)
+    TriggerClientEvent('LonexDiscord:HeadTags:PlayerLeft', -1, source)
+end)
+
+-- Sync tags when player joins
+AddEventHandler('playerJoining', function()
+    local source = source
+    
+    if not Config.HeadTags or not Config.HeadTags.Enabled then
+        return
+    end
+    
+    SetTimeout(3000, function()
+        HeadTagsModule.BroadcastPlayerTag(source)
+        HeadTagsModule.SyncAllTagsToPlayer(source)
+    end)
+end)
+
+-- Register headtags command
+RegisterCommand(Config.HeadTags and Config.HeadTags.MenuCommand or 'headtags', function(source, args)
+    if source == 0 then return end
+    
+    if not Config.HeadTags or not Config.HeadTags.Enabled then
+        return
+    end
+    
+    local available = HeadTagsModule.GetPlayerAvailableTags(source)
+    local selectedIndex = PlayerSelectedTag[source] or #available
+    local settings = HeadTagsModule.GetPlayerSettings(source)
+    
+    TriggerClientEvent('LonexDiscord:HeadTags:OpenMenu', source, available, selectedIndex, settings)
+end, false)
+
+-- Client requests
+RegisterNetEvent('LonexDiscord:HeadTags:RequestSync')
+AddEventHandler('LonexDiscord:HeadTags:RequestSync', function()
+    local source = source
+    HeadTagsModule.SyncAllTagsToPlayer(source)
+end)
+
+RegisterNetEvent('LonexDiscord:HeadTags:SelectTag')
+AddEventHandler('LonexDiscord:HeadTags:SelectTag', function(index)
+    local source = source
+    
+    if type(index) ~= 'number' then return end
+    
+    HeadTagsModule.SetPlayerSelectedTag(source, index)
+end)
+
+RegisterNetEvent('LonexDiscord:HeadTags:UpdateMySettings')
+AddEventHandler('LonexDiscord:HeadTags:UpdateMySettings', function(settings)
+    local source = source
+    
+    if type(settings) ~= 'table' then return end
+    
+    local currentSettings = HeadTagsModule.GetPlayerSettings(source)
+    
+    if settings.showOthers ~= nil then
+        currentSettings.showOthers = settings.showOthers == true
+    end
+    if settings.showOwn ~= nil then
+        currentSettings.showOwn = settings.showOwn == true
+    end
+    
+    HeadTagsModule.SetPlayerSettings(source, currentSettings)
+end)
+
+exports('GetPlayerHeadTag', function(source)
+    return HeadTagsModule.GetPlayerHeadTag(source)
+end)
+
+exports('GetPlayerAvailableTags', function(source)
+    return HeadTagsModule.GetPlayerAvailableTags(source)
+end)
+
+exports('GetPlayerHeadTagSettings', function(source)
+    return HeadTagsModule.GetPlayerSettings(source)
+end)
+
+exports('SetPlayerHeadTagSettings', function(source, settings)
+    HeadTagsModule.SetPlayerSettings(source, settings)
+end)
+
+exports('SetPlayerSelectedTag', function(source, index)
+    return HeadTagsModule.SetPlayerSelectedTag(source, index)
+end)
+
+exports('RefreshPlayerHeadTag', function(source)
+    return HeadTagsModule.RefreshPlayerHeadTag(source)
+end)
+
+exports('GetAllHeadTags', function()
+    return HeadTagsModule.GetAllPlayerTags()
+end)
+
+LonexDiscord.HeadTags = HeadTagsModule

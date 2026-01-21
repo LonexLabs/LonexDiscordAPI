@@ -7,9 +7,10 @@ LonexDiscord = LonexDiscord or {}
 LonexDiscord.API = {}
 
 local API = LonexDiscord.API
-local Http = LonexDiscord.Http
-local Cache = LonexDiscord.Cache
-local Utils = LonexDiscord.Utils
+
+local function Http() return LonexDiscord.Http end
+local function Cache() return LonexDiscord.Cache end
+local function Utils() return LonexDiscord.Utils end
 
 ---Fetch a Discord user by ID
 ---@param userId string Discord user ID
@@ -19,18 +20,18 @@ local Utils = LonexDiscord.Utils
 function API.GetUser(userId, useCache)
     if useCache == nil then useCache = true end
     
-    userId = Utils.ToSnowflake(userId)
+    userId = Utils().ToSnowflake(userId)
     
     -- Check cache first
     if useCache then
-        local cached = Cache.GetUser(userId)
+        local cached = Cache().GetUser(userId)
         if cached then
             return cached, nil
         end
     end
     
     -- Fetch from Discord
-    local response = Http.Get(string.format('/users/%s', userId))
+    local response = Http().Get(string.format('/users/%s', userId))
     
     if response.success and response.data then
         local user = {
@@ -46,7 +47,7 @@ function API.GetUser(userId, useCache)
         }
         
         -- Cache it
-        Cache.SetUser(userId, user)
+        Cache().SetUser(userId, user)
         
         return user, nil
     else
@@ -62,18 +63,18 @@ end
 function API.GetMember(userId, useCache)
     if useCache == nil then useCache = true end
     
-    userId = Utils.ToSnowflake(userId)
+    userId = Utils().ToSnowflake(userId)
     
     -- Check cache first
     if useCache then
-        local cached = Cache.GetMember(userId)
+        local cached = Cache().GetMember(userId)
         if cached then
             return cached, nil
         end
     end
     
     -- Fetch from Discord
-    local response = Http.Get(string.format('/guilds/%s/members/%s', Config.GuildId, userId))
+    local response = Http().Get(string.format('/guilds/%s/members/%s', Config.GuildId, userId))
     
     if response.success and response.data then
         local data = response.data
@@ -101,10 +102,10 @@ function API.GetMember(userId, useCache)
         }
         
         -- Cache it
-        Cache.SetMember(userId, member)
+        Cache().SetMember(userId, member)
         
         -- Also cache the user data separately
-        Cache.SetUser(userId, member.user)
+        Cache().SetUser(userId, member.user)
         
         return member, nil
     else
@@ -122,7 +123,7 @@ end
 ---@return table|nil memberData
 ---@return string|nil error
 function API.GetMemberBySource(source, useCache)
-    local discordId = Utils.GetDiscordIdentifier(source)
+    local discordId = Utils().GetDiscordIdentifier(source)
     
     if not discordId then
         return nil, 'Player has no Discord identifier'
@@ -150,7 +151,7 @@ function API.GetMemberRoles(userId)
         return nil, err
     end
     
-    local cachedRoles = Cache.GetRoles()
+    local cachedRoles = Cache().GetRoles()
     if not cachedRoles then
         return nil, 'Roles not cached'
     end
@@ -219,8 +220,8 @@ function API.MemberHasRole(userId, roleId)
         return false, err
     end
     
-    roleId = Utils.ToSnowflake(roleId)
-    if not Utils.IsValidSnowflake(roleId) then
+    roleId = Utils().ToSnowflake(roleId)
+    if not Utils().IsValidSnowflake(roleId) then
         return false, 'Invalid role ID: ' .. tostring(roleId)
     end
     
@@ -276,7 +277,7 @@ function API.GetUserAvatar(userId, size)
         return nil, err
     end
     
-    return Utils.GetAvatarUrl(user.id, user.avatar, size), nil
+    return Utils().GetAvatarUrl(user.id, user.avatar, size), nil
 end
 
 ---Get a member's guild avatar URL (falls back to user avatar)
@@ -294,13 +295,13 @@ function API.GetMemberAvatar(userId, size)
     
     -- Guild-specific avatar takes priority
     if member.avatar then
-        local ext = Utils.StartsWith(member.avatar, 'a_') and 'gif' or 'png'
+        local ext = Utils().StartsWith(member.avatar, 'a_') and 'gif' or 'png'
         return string.format('https://cdn.discordapp.com/guilds/%s/users/%s/avatars/%s.%s?size=%d',
             Config.GuildId, member.user.id, member.avatar, ext, size), nil
     end
     
     -- Fall back to user avatar
-    return Utils.GetAvatarUrl(member.user.id, member.user.avatar, size), nil
+    return Utils().GetAvatarUrl(member.user.id, member.user.avatar, size), nil
 end
 
 ---Get a member's display name (nickname > global name > username)
@@ -335,33 +336,33 @@ end
 ---Prefetch member data for multiple players (useful on resource start)
 ---@param sources table Array of player sources
 function API.PrefetchMembers(sources)
-    Utils.Info('Prefetching member data for %d players...', #sources)
+    Utils().Info('Prefetching member data for %d players...', #sources)
     
     local fetched = 0
     local failed = 0
     
     for _, source in ipairs(sources) do
-        local discordId = Utils.GetDiscordIdentifier(source)
+        local discordId = Utils().GetDiscordIdentifier(source)
         if discordId then
             local member, err = API.GetMember(discordId, false) -- Skip cache, force fetch
             if member then
                 fetched = fetched + 1
             else
                 failed = failed + 1
-                Utils.Debug('Failed to prefetch member %s: %s', discordId, err)
+                Utils().Debug('Failed to prefetch member %s: %s', discordId, err)
             end
         end
     end
     
-    Utils.Info('Prefetch complete: %d fetched, %d failed', fetched, failed)
+    Utils().Info('Prefetch complete: %d fetched, %d failed', fetched, failed)
 end
 
 ---Invalidate a member's cached data
 ---@param userId string Discord user ID
 function API.InvalidateMember(userId)
-    userId = Utils.ToSnowflake(userId)
-    Cache.DeleteMember(userId)
-    Utils.Debug('Invalidated cache for member: %s', userId)
+    userId = Utils().ToSnowflake(userId)
+    Cache().DeleteMember(userId)
+    Utils().Debug('Invalidated cache for member: %s', userId)
 end
 
 ---Add a role to a guild member
@@ -371,10 +372,10 @@ end
 ---@return boolean success
 ---@return string|nil error
 function API.AddRole(userId, roleId, reason)
-    userId = Utils.ToSnowflake(userId)
-    roleId = Utils.ToSnowflake(roleId)
+    userId = Utils().ToSnowflake(userId)
+    roleId = Utils().ToSnowflake(roleId)
     
-    if not Utils.IsValidSnowflake(roleId) then
+    if not Utils().IsValidSnowflake(roleId) then
         return false, 'Invalid role ID: ' .. tostring(roleId)
     end
     
@@ -389,15 +390,15 @@ function API.AddRole(userId, roleId, reason)
     local endpoint = string.format('/guilds/%s/members/%s/roles/%s', 
         Config.GuildId, userId, roleId)
     
-    local response = Http.Put(endpoint, nil, headers)
+    local response = Http().Put(endpoint, nil, headers)
     
     if response.success then
         -- Invalidate cache so next fetch gets updated roles
         API.InvalidateMember(userId)
-        Utils.Debug('Added role %s to user %s', roleId, userId)
+        Utils().Debug('Added role %s to user %s', roleId, userId)
         return true, nil
     else
-        Utils.Warn('Failed to add role %s to user %s: %s', roleId, userId, response.error or 'Unknown error')
+        Utils().Warn('Failed to add role %s to user %s: %s', roleId, userId, response.error or 'Unknown error')
         return false, response.error or 'Failed to add role'
     end
 end
@@ -409,10 +410,10 @@ end
 ---@return boolean success
 ---@return string|nil error
 function API.RemoveRole(userId, roleId, reason)
-    userId = Utils.ToSnowflake(userId)
-    roleId = Utils.ToSnowflake(roleId)
+    userId = Utils().ToSnowflake(userId)
+    roleId = Utils().ToSnowflake(roleId)
     
-    if not Utils.IsValidSnowflake(roleId) then
+    if not Utils().IsValidSnowflake(roleId) then
         return false, 'Invalid role ID: ' .. tostring(roleId)
     end
     
@@ -427,15 +428,15 @@ function API.RemoveRole(userId, roleId, reason)
     local endpoint = string.format('/guilds/%s/members/%s/roles/%s', 
         Config.GuildId, userId, roleId)
     
-    local response = Http.Delete(endpoint, headers)
+    local response = Http().Delete(endpoint, headers)
     
     if response.success then
         -- Invalidate cache so next fetch gets updated roles
         API.InvalidateMember(userId)
-        Utils.Debug('Removed role %s from user %s', roleId, userId)
+        Utils().Debug('Removed role %s from user %s', roleId, userId)
         return true, nil
     else
-        Utils.Warn('Failed to remove role %s from user %s: %s', roleId, userId, response.error or 'Unknown error')
+        Utils().Warn('Failed to remove role %s from user %s: %s', roleId, userId, response.error or 'Unknown error')
         return false, response.error or 'Failed to remove role'
     end
 end
@@ -447,13 +448,13 @@ end
 ---@return boolean success
 ---@return string|nil error
 function API.SetRoles(userId, roleIds, reason)
-    userId = Utils.ToSnowflake(userId)
+    userId = Utils().ToSnowflake(userId)
     
     -- Validate all role IDs
     local validRoleIds = {}
     for _, roleId in ipairs(roleIds) do
-        local resolved = Utils.ToSnowflake(roleId)
-        if not Utils.IsValidSnowflake(resolved) then
+        local resolved = Utils().ToSnowflake(roleId)
+        if not Utils().IsValidSnowflake(resolved) then
             return false, 'Invalid role ID: ' .. tostring(roleId)
         end
         table.insert(validRoleIds, resolved)
@@ -472,15 +473,15 @@ function API.SetRoles(userId, roleIds, reason)
         roles = validRoleIds
     }
     
-    local response = Http.Patch(endpoint, body, headers)
+    local response = Http().Patch(endpoint, body, headers)
     
     if response.success then
         -- Invalidate cache so next fetch gets updated roles
         API.InvalidateMember(userId)
-        Utils.Debug('Set %d roles for user %s', #validRoleIds, userId)
+        Utils().Debug('Set %d roles for user %s', #validRoleIds, userId)
         return true, nil
     else
-        Utils.Warn('Failed to set roles for user %s: %s', userId, response.error or 'Unknown error')
+        Utils().Warn('Failed to set roles for user %s: %s', userId, response.error or 'Unknown error')
         return false, response.error or 'Failed to set roles'
     end
 end
@@ -492,7 +493,7 @@ end
 ---@return boolean success
 ---@return string|nil error
 function API.SetNickname(userId, nickname, reason)
-    userId = Utils.ToSnowflake(userId)
+    userId = Utils().ToSnowflake(userId)
     
     -- Treat empty string as nil (reset nickname)
     if nickname == '' then
@@ -512,19 +513,19 @@ function API.SetNickname(userId, nickname, reason)
         nick = nickname
     }
     
-    local response = Http.Patch(endpoint, body, headers)
+    local response = Http().Patch(endpoint, body, headers)
     
     if response.success then
         -- Invalidate cache so next fetch gets updated nickname
         API.InvalidateMember(userId)
-        Utils.Debug('Set nickname for user %s to: %s', userId, tostring(nickname))
+        Utils().Debug('Set nickname for user %s to: %s', userId, tostring(nickname))
         return true, nil
     else
         -- Common error: trying to change nickname of server owner or higher role
         if response.status == 403 then
             return false, 'Missing permissions (user may have higher role or be server owner)'
         end
-        Utils.Warn('Failed to set nickname for user %s: %s', userId, response.error or 'Unknown error')
+        Utils().Warn('Failed to set nickname for user %s: %s', userId, response.error or 'Unknown error')
         return false, response.error or 'Failed to set nickname'
     end
 end
@@ -536,10 +537,10 @@ end
 ---@return boolean success
 ---@return string|nil error
 function API.MoveToVoiceChannel(userId, channelId, reason)
-    userId = Utils.ToSnowflake(userId)
+    userId = Utils().ToSnowflake(userId)
     
     if channelId then
-        channelId = Utils.ToSnowflake(channelId)
+        channelId = Utils().ToSnowflake(channelId)
     end
     
     -- Build headers with audit log reason
@@ -555,16 +556,16 @@ function API.MoveToVoiceChannel(userId, channelId, reason)
         channel_id = channelId
     }
     
-    local response = Http.Patch(endpoint, body, headers)
+    local response = Http().Patch(endpoint, body, headers)
     
     if response.success then
-        Utils.Debug('Moved user %s to voice channel: %s', userId, tostring(channelId))
+        Utils().Debug('Moved user %s to voice channel: %s', userId, tostring(channelId))
         return true, nil
     else
         if response.status == 400 then
             return false, 'User is not in a voice channel or invalid channel ID'
         end
-        Utils.Warn('Failed to move user %s to voice channel: %s', userId, response.error or 'Unknown error')
+        Utils().Warn('Failed to move user %s to voice channel: %s', userId, response.error or 'Unknown error')
         return false, response.error or 'Failed to move to voice channel'
     end
 end

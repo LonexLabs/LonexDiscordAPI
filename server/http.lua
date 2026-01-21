@@ -9,7 +9,7 @@ Config.GuildId = GetConvar('lonex_discord_guild', '')
 Config.Http = {
     BaseUrl = 'https://discord.com/api/v10',
     Timeout = 10000,
-    UserAgent = 'LonexDiscordAPI (https://github.com/LonexLabs/LonexDiscordAPI, 1.4.0)'
+    UserAgent = 'LonexDiscordAPI (https://github.com/LonexLabs/LonexDiscordAPI, 1.1.0)'
 }
 Config.Logging = Config.Logging or {}
 Config.Logging.Prefix = '[LonexDiscord]'
@@ -26,7 +26,7 @@ LonexDiscord = LonexDiscord or {}
 LonexDiscord.Http = {}
 
 local Http = LonexDiscord.Http
-local Utils = LonexDiscord.Utils
+local function Utils() return LonexDiscord.Utils end
 
 local Buckets = {}
 local GlobalRateLimit = { limited = false, resetAt = 0 }
@@ -74,7 +74,7 @@ end
 
 local function IsBucketLimited(route)
     local bucket = GetBucket(route)
-    local now = Utils.GetTimeMs()
+    local now = Utils().GetTimeMs()
     
     if GlobalRateLimit.limited and now < GlobalRateLimit.resetAt then
         return true, GlobalRateLimit.resetAt - now
@@ -100,7 +100,7 @@ end
 
 local function BuildUrl(endpoint)
     local base = Config.Http.BaseUrl
-    if Utils.StartsWith(endpoint, '/') then
+    if Utils().StartsWith(endpoint, '/') then
         return base .. endpoint
     end
     return base .. '/' .. endpoint
@@ -169,7 +169,7 @@ local function ProcessRequest(request)
         
         if limited then
             if Config.Logging.LogRateLimits then
-                Utils.Debug('Rate limited on %s, waiting %dms', route, waitTime)
+                Utils().Debug('Rate limited on %s, waiting %dms', route, waitTime)
             end
             Stats.rateLimitHits = Stats.rateLimitHits + 1
             Wait(waitTime + 100)
@@ -188,17 +188,17 @@ local function ProcessRequest(request)
 
             if response.data and response.data.global then
                 GlobalRateLimit.limited = true
-                GlobalRateLimit.resetAt = Utils.GetTimeMs() + retryAfter
-                Utils.Warn('Global rate limit hit! Waiting %dms', retryAfter)
+                GlobalRateLimit.resetAt = Utils().GetTimeMs() + retryAfter
+                Utils().Warn('Global rate limit hit! Waiting %dms', retryAfter)
             end
 
             if attempt < maxRetries then
                 attempt = attempt + 1
                 Stats.retries = Stats.retries + 1
-                Utils.Debug('Rate limited, retry %d/%d in %dms', attempt, maxRetries, retryAfter)
+                Utils().Debug('Rate limited, retry %d/%d in %dms', attempt, maxRetries, retryAfter)
                 Wait(retryAfter)
             else
-                Utils.Error('Rate limited on %s, max retries exceeded', route)
+                Utils().Error('Rate limited on %s, max retries exceeded', route)
                 return response
             end
         else
@@ -207,11 +207,11 @@ local function ProcessRequest(request)
             if response.success then
                 Stats.successfulRequests = Stats.successfulRequests + 1
                 if Config.Logging.LogSuccess then
-                    Utils.Debug('%s %s -> %d', request.method, request.endpoint, response.status)
+                    Utils().Debug('%s %s -> %d', request.method, request.endpoint, response.status)
                 end
             else
                 Stats.failedRequests = Stats.failedRequests + 1
-                Utils.Warn('%s %s -> %d: %s', request.method, request.endpoint, response.status, response.error or 'Unknown error')
+                Utils().Warn('%s %s -> %d: %s', request.method, request.endpoint, response.status, response.error or 'Unknown error')
             end
             
             return response
@@ -221,7 +221,7 @@ end
 
 local function QueueRequest(request)
     if #RequestQueue >= Config.RateLimit.MaxQueueSize then
-        Utils.Error('Request queue full, rejecting request to %s', request.endpoint)
+        Utils().Error('Request queue full, rejecting request to %s', request.endpoint)
         return { success = false, status = 0, error = 'Request queue full', data = nil, headers = {} }
     end
 
@@ -265,7 +265,7 @@ function Http.Delete(endpoint, headers)
 end
 
 function Http.GetStats()
-    return Utils.DeepCopy(Stats)
+    return Utils().DeepCopy(Stats)
 end
 
 function Http.ResetStats()

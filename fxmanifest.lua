@@ -4,7 +4,7 @@ game 'gta5'
 name 'LonexDiscordAPI'
 author 'LonexLabs'
 description 'Discord API integration for FiveM'
-version '1.0.0'
+version '1.1.0'
 repository 'https://github.com/LonexLabs/LonexDiscordAPI'
 
 lua54 'yes'
