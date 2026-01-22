@@ -1,7 +1,7 @@
 # LonexDiscordAPI
 
 **LonexDiscordAPI** is a powerful, high-performance Discord integration library for FiveM servers.  
-It provides seamless Discord role syncing, permissions, webhooks, and player data access — all designed to be fast, reliable, and developer-friendly.
+It provides seamless Discord role syncing, permissions, webhooks, player data access, and server utilities — all designed to be fast, reliable, and developer-friendly.
 
 ---
 
@@ -38,6 +38,46 @@ It provides seamless Discord role syncing, permissions, webhooks, and player dat
   `command.*` grants access to all command permissions
 - **Priority System**  
   Higher priority roles override lower priority ones
+- **Weapon/Vehicle/Ped Restrictions**  
+  Restrict weapons, vehicles, and ped models based on Discord roles
+
+---
+
+### 🏷️ Tags System
+- **Head Tags**  
+  Display role-based tags above players' heads
+- **Chat Tags**  
+  Role-based chat prefixes with color support
+- **Voice Tags**  
+  pma-voice integration for overhead voice indicators
+- **NUI Menu**  
+  Players can select their tag and toggle visibility via `/tags`
+
+---
+
+### 🚨 Emergency Calls (911/311)
+- **911 & 311 Calls**  
+  Players can request emergency assistance with location
+- **Duty System**  
+  Only on-duty players receive calls
+- **Discord Integration**  
+  Calls are logged to Discord channels
+- **Response System**  
+  Responders can set waypoints to caller locations with `/resp`
+
+---
+
+### 🎮 Server Utilities
+- **AOP (Area of Play)**  
+  Set and display the current roleplay area
+- **PeaceTime**  
+  Toggle PeaceTime with automatic weapon blocking and speed limit warnings
+- **Announcements**  
+  Server-wide on-screen announcements
+- **Postals**  
+  Navigate to postal codes with `/postal`
+- **Server HUD**  
+  Configurable HUD with compass, street, zone, postal, AOP, and player info
 
 ---
 
@@ -72,6 +112,8 @@ It provides seamless Discord role syncing, permissions, webhooks, and player dat
   Built-in commands for testing and troubleshooting
 - **LuaDoc Annotations**  
   IDE auto-completion and inline documentation support
+- **Badger_Discord_API Bridge**  
+  Drop-in compatibility layer for existing scripts
 
 ---
 
@@ -85,6 +127,9 @@ The documentation includes:
 - Bot configuration
 - Permission & role examples
 - Webhook usage
+- Server utilities configuration
+- Emergency calls setup
+- Tags system customization
 - API & export reference
 
 ---
@@ -95,6 +140,26 @@ The documentation includes:
 - Automatic Discord ↔ FiveM syncing
 - Advanced logging and moderation tools
 - Cross-resource Discord integration
+- Roleplay server utilities (AOP, PeaceTime, HUD)
+- Emergency services dispatch system
+- Player identification with head/chat tags
+
+---
+
+## 📋 Commands
+
+| Command | Description |
+|---------|-------------|
+| `/aop <zone>` | Set the Area of Play |
+| `/peacetime` or `/pt` | Toggle PeaceTime |
+| `/announce <message>` | Send server announcement |
+| `/postal <code>` | Set waypoint to postal |
+| `/togglehud` | Toggle HUD visibility |
+| `/tags` | Open tag selection menu |
+| `/911 <message>` | Send emergency call |
+| `/311 <message>` | Send non-emergency call |
+| `/resp <id>` | Respond to a call |
+| `/duty` | Toggle duty status |
 
 ---
 
