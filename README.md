@@ -3,7 +3,7 @@
 **LonexDiscordAPI** is a powerful, high-performance Discord integration library for FiveM servers.  
 It provides seamless Discord role syncing, permissions, webhooks, player data access, and server utilities — all designed to be fast, reliable, and developer-friendly.
 
-![Discord Banner 2](https://discord.com/api/guilds/1454578226700615815/widget.png?style=banner2)
+[![Discord Banner 2](https://discord.com/api/guilds/1454578226700615815/widget.png?style=banner2)](https://discord.gg/LonexLabs)
 
 ---
 
