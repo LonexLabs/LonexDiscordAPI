@@ -13,6 +13,7 @@ Config = {}
 Config.Debug = false
 Config.LogLevel = 'info'
 Config.LogCacheRefresh = false
+Config.CheckUpdates = true -- Check GitHub for new releases on startup
 
 Config.ForceDefaultPed = {
     Enabled = false,
@@ -155,35 +156,287 @@ Config.PedPermissions = {
     },
 }
 
-Config.ChatRoles = {
+Config.Tags = {
     Enabled = false,
-    DefaultRole = {
-        prefix = '^7',
-        name = 'Civilian',
+    MenuCommand = 'tags',
+    MenuPosition = 'left', -- 'left' or 'right'
+    
+    HeadTags = {
+        Enabled = true,
+        MaxDistance = 20.0,
+        HeightOffset = 1.0,
+        Font = 4,
+        Scale = 0.4,
     },
-    -- Color codes: ^0=White ^1=Red ^2=Green ^3=Yellow ^4=Blue ^5=Cyan ^6=Pink ^7=White ^8=Orange ^9=Grey
-    Roles = {
-        -- { roleId = 'ROLE_ID', prefix = '^2[VIP] ', name = 'VIP' },
-        -- { roleId = 'ROLE_ID', prefix = '^1[Admin] ', name = 'Admin' },
+    
+    ChatTags = {
+        Enabled = true,
     },
-}
-
-Config.HeadTags = {
-    Enabled = false,
-    MenuCommand = 'headtags',
-    MaxDistance = 20.0,
-    HeightOffset = 1.0,
-    Font = 4,
-    Scale = 0.4,
+    
+    VoiceTags = {
+        Enabled = true,
+        ShowSelf = true,
+    },
+    
     DefaultShowOthers = true,
     DefaultShowOwn = true,
+    
     DefaultTag = {
         text = 'Player',
         color = { r = 255, g = 255, b = 255 },
+        chatColor = '^7',
     },
+    
     Roles = {
-        -- { roleId = 'ROLE_ID', text = 'VIP', color = { r = 0, g = 255, b = 0 } },
-        -- { roleId = 'ROLE_ID', text = 'Admin', color = { r = 255, g = 165, b = 0 } },
-        -- { roleId = 'ROLE_ID', text = 'Owner', color = { r = 255, g = 0, b = 0 } },
+        -- { roleId = 'ROLE_ID', text = 'VIP', color = { r = 0, g = 255, b = 0 }, chatColor = '^2' },
+        -- { roleId = 'ROLE_ID', text = 'Moderator', color = { r = 0, g = 191, b = 255 }, chatColor = '^4' },
+        -- { roleId = 'ROLE_ID', text = 'Admin', color = { r = 255, g = 165, b = 0 }, chatColor = '^8' },
+        -- { roleId = 'ROLE_ID', text = 'Owner', color = { r = 255, g = 0, b = 0 }, chatColor = '^1' },
+    },
+}
+
+-- ============================================================================
+-- EMERGENCY CALLS (911/311 System)
+-- ============================================================================
+
+Config.EmergencyCalls = {
+    Enabled = false,
+    
+    -- Cooldown between calls (seconds)
+    Cooldown = 60,
+    
+    -- Duty system - only on-duty players receive calls
+    Duty = {
+        Enabled = false,          -- Set to true to require duty
+        Command = 'duty',         -- /duty to toggle
+        DefaultOnDuty = false,    -- Are players on duty by default when joining?
+        Messages = {
+            OnDuty = '^2You are now ^3ON DUTY^2 and will receive emergency calls.',
+            OffDuty = '^1You are now ^3OFF DUTY^1 and will not receive emergency calls.',
+            MustBeOnDuty = '^1You must be on duty to respond to calls. Use /duty to go on duty.',
+        },
+    },
+    
+    -- Call types configuration
+    Types = {
+        ['911'] = {
+            Enabled = true,
+            Command = '911',           -- /911 <message>
+            Label = '911 Emergency',
+            Color = 0xFF0000,          -- Red (Discord embed color in hex)
+            ChannelId = '',            -- Discord channel ID to send calls
+            
+            -- Roles that can see calls in-game and respond
+            ResponderRoles = {
+                -- 'ROLE_ID_1',
+                -- 'ROLE_ID_2',
+            },
+            
+            -- Chat prefix for in-game notifications
+            Prefix = '^1[911]^0',
+            
+            -- Messages
+            Messages = {
+                Sent = '^2Your 911 call has been sent to emergency services.',
+                NoMessage = '^1Please provide details for your 911 call. Usage: /911 <message>',
+                Cooldown = '^1Please wait before making another call.',
+            },
+        },
+        
+        ['311'] = {
+            Enabled = false,
+            Command = '311',           -- /311 <message>
+            Label = '311 Non-Emergency',
+            Color = 0x00FF00,          -- Green
+            ChannelId = '',            -- Discord channel ID
+            
+            ResponderRoles = {
+                -- 'ROLE_ID_1',
+            },
+            
+            Prefix = '^2[311]^0',
+            
+            Messages = {
+                Sent = '^2Your 311 report has been submitted.',
+                NoMessage = '^1Please provide details. Usage: /311 <message>',
+                Cooldown = '^1Please wait before making another report.',
+            },
+        },
+    },
+    
+    -- Response command
+    Response = {
+        Command = 'resp',              -- /resp <call_id>
+        Messages = {
+            InvalidCall = '^1Invalid call ID or call no longer exists.',
+            Responding = '^2Waypoint set. Responding to call #%s.',
+            NoPermission = '^1You do not have permission to respond to calls.',
+        },
+    },
+}
+
+-- ============================================================================
+-- AREA OF PLAY (AOP)
+-- ============================================================================
+
+Config.AOP = {
+    Enabled = false,
+    Command = 'aop',               -- /aop <zone>
+    Default = 'All of San Andreas',
+    
+    -- Discord roles that can change AOP (empty = everyone)
+    AllowedRoles = {
+        -- 'ROLE_ID_1',
+        -- 'ROLE_ID_2',
+    },
+    
+    Messages = {
+        Changed = '^2AOP has been changed to: ^3%s',
+        NoPermission = '^1You do not have permission to change the AOP.',
+        Usage = '^1Usage: /aop <zone name>',
+    },
+}
+
+-- ============================================================================
+-- PEACETIME
+-- ============================================================================
+
+Config.PeaceTime = {
+    Enabled = false,
+    Commands = { 'peacetime', 'pt' },  -- Both commands work
+    Default = false,                    -- PeaceTime off by default
+    
+    -- Discord roles that can toggle PeaceTime (empty = everyone)
+    AllowedRoles = {
+        -- 'ROLE_ID_1',
+    },
+    
+    -- Restrictions during PeaceTime
+    Restrictions = {
+        -- Prevent drawing/using weapons
+        DisableWeapons = true,
+        
+        -- Speed limit warning
+        SpeedLimit = {
+            Enabled = true,
+            Limit = 65,           -- Speed limit value
+            Unit = 'mph',         -- 'mph' or 'kmh'
+            WarningInterval = 5,  -- Seconds between warnings
+        },
+    },
+    
+    Messages = {
+        Enabled = '^2PeaceTime is now ^3ENABLED^2. No criminal activity!',
+        Disabled = '^1PeaceTime is now ^3DISABLED^1. Crime is allowed.',
+        NoPermission = '^1You do not have permission to toggle PeaceTime.',
+        WeaponBlocked = '~r~Weapons are disabled during PeaceTime!',
+        SpeedWarning = '~y~Slow down! Speed limit during PeaceTime is %s %s',
+    },
+}
+
+-- ============================================================================
+-- ANNOUNCEMENTS
+-- ============================================================================
+
+Config.Announcements = {
+    Enabled = false,
+    Command = 'announce',          -- /announce <message>
+    
+    -- Discord roles that can make announcements (empty = everyone)
+    AllowedRoles = {
+        -- 'ROLE_ID_1',
+    },
+    
+    -- Display settings
+    Header = '~b~[~p~Server Announcement~b~]',
+    Duration = 10,                 -- Seconds to display
+    Position = 0.3,                -- 0 = top, 0.3 = middle, 0.5 = center
+    
+    Messages = {
+        NoPermission = '^1You do not have permission to make announcements.',
+        Usage = '^1Usage: /announce <message>',
+        Sent = '^2Announcement sent!',
+    },
+}
+
+-- ============================================================================
+-- POSTALS
+-- ============================================================================
+
+Config.Postals = {
+    Enabled = false,
+    Command = 'postal',            -- /postal <code> or /postal to cancel
+    
+    Messages = {
+        Set = '^2Waypoint set to postal ^3%s^2.',
+        Cancelled = '^3Postal waypoint cancelled.',
+        NotFound = '^1Postal code ^3%s^1 not found.',
+        Usage = '^1Usage: /postal <code> or /postal to cancel waypoint',
+    },
+}
+
+-- ============================================================================
+-- SERVER HUD
+-- ============================================================================
+
+Config.ServerHUD = {
+    Enabled = false,
+    ToggleCommand = 'togglehud',   -- /togglehud to show/hide
+    
+    -- Watermark/Server name (shown at top of HUD)
+    Watermark = {
+        Enabled = false,
+        Text = 'My RP Server | discord.gg/myserver',
+        x = 0.165,
+        y = 0.825,
+        scale = 0.4,
+    },
+    
+    -- Configurable display elements
+    -- Use GTA color codes: ~r~ red, ~g~ green, ~b~ blue, ~y~ yellow, ~p~ purple, ~w~ white
+    -- Placeholders: {COMPASS}, {STREET}, {ZONE}, {POSTAL}, {POSTAL_DIST}, {AOP}, {PEACETIME}, {ID}, {PLAYERS}, {TAG}
+    Displays = {
+        ['Compass'] = {
+            x = 0.165,
+            y = 0.85,
+            display = "~w~| ~g~{COMPASS} ~w~|",
+            scale = 1.0,
+            enabled = true,
+        },
+        ['Street'] = {
+            x = 0.22,
+            y = 0.855,
+            display = "~g~{STREET}",
+            scale = 0.45,
+            enabled = true,
+        },
+        ['Zone'] = {
+            x = 0.22,
+            y = 0.875,
+            display = "~w~{ZONE}",
+            scale = 0.45,
+            enabled = true,
+        },
+        ['Postal'] = {
+            x = 0.165,
+            y = 0.91,
+            display = "~w~Nearest ~g~Postal: ~w~{POSTAL} (~g~{POSTAL_DIST}m~w~)",
+            scale = 0.4,
+            enabled = true,
+        },
+        ['AOP'] = {
+            x = 0.165,
+            y = 0.93,
+            display = "~w~Current ~g~AOP: ~w~{AOP} ~y~| ~w~PeaceTime: {PEACETIME}",
+            scale = 0.4,
+            enabled = true,
+        },
+        ['PlayerInfo'] = {
+            x = 0.165,
+            y = 0.953,
+            display = "~w~Tag: ~g~{TAG} ~y~| ~w~ID: ~g~{ID}",
+            scale = 0.4,
+            enabled = true,
+        },
     },
 }

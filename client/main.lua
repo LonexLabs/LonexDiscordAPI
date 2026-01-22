@@ -346,282 +346,858 @@ CreateThread(function()
     end
 end)
 
--- HEADTAGS CLIENT
 
-local HeadTagsData = {}
-local HeadTagsSettings = {
-    showOthers = true,
-    showOwn = true,
-}
-local HeadTagsAvailable = {}
-local HeadTagsSelectedIndex = 1
-local HeadTagsMenuOpen = false
-local HeadTagsMenuIndex = 1
+-- ============================================================================
+-- UNIFIED TAGS SYSTEM
+-- ============================================================================
 
-local function DrawText3D(x, y, z, text, r, g, b, a, scale, font)
-    local onScreen, _x, _y = World3dToScreen2d(x, y, z)
+local TagsData = {}
+local TagsSettings = { showOthers = true, showOwn = true }
+local AvailableTags = {}
+local SelectedTagIndex = 1
+local MenuOpen = false
+local MenuIndex = 1
+
+-- Load menu textures
+CreateThread(function()
+    RequestStreamedTextureDict('commonmenu', true)
+    while not HasStreamedTextureDictLoaded('commonmenu') do
+        Wait(10)
+    end
+end)
+
+local function DrawText3D(x, y, z, text, r, g, b, scale, font)
+    local onScreen, sx, sy = World3dToScreen2d(x, y, z)
     if onScreen then
-        SetTextScale(scale or 0.4, scale or 0.4)
+        SetTextScale(scale, scale)
         SetTextFont(font or 4)
         SetTextProportional(true)
-        SetTextColour(r or 255, g or 255, b or 255, a or 255)
+        SetTextColour(r, g, b, 255)
         SetTextOutline()
-        SetTextEntry('STRING')
         SetTextCentre(true)
-        AddTextComponentString(text)
-        DrawText(_x, _y)
+        BeginTextCommandDisplayText('STRING')
+        AddTextComponentSubstringPlayerName(text)
+        EndTextCommandDisplayText(sx, sy)
     end
 end
 
-local function GetHeadTagDisplayText(playerId, tagData)
+local function GetTagDisplayText(playerId, tagData)
     local tag = tagData.tag and tagData.tag.text or 'Player'
     local name = tagData.name or 'Unknown'
     return string.format('%s | [%d] %s', tag, playerId, name)
 end
 
--- Simple menu drawing functions
-local function DrawMenuRect(x, y, width, height, r, g, b, a)
-    DrawRect(x + width/2, y + height/2, width, height, r, g, b, a)
-end
-
-local function DrawMenuText(text, x, y, scale, r, g, b, a, font, alignment)
-    SetTextFont(font or 0)
-    SetTextScale(scale, scale)
-    SetTextColour(r, g, b, a)
-    if alignment == 1 then
-        SetTextCentre(true)
-    elseif alignment == 2 then
-        SetTextRightJustify(true)
-        SetTextWrap(0, x)
-    end
-    SetTextEntry("STRING")
-    AddTextComponentString(text)
-    DrawText(x, y)
-end
-
-RegisterNetEvent('LonexDiscord:HeadTags:SyncAll')
-AddEventHandler('LonexDiscord:HeadTags:SyncAll', function(allTags, settings, available, selectedIndex)
-    HeadTagsData = allTags or {}
+RegisterNetEvent('LonexDiscord:Tags:SyncAll')
+AddEventHandler('LonexDiscord:Tags:SyncAll', function(allTags, settings, available, selectedIndex)
+    TagsData = allTags or {}
     if settings then
-        HeadTagsSettings.showOthers = settings.showOthers ~= false
-        HeadTagsSettings.showOwn = settings.showOwn ~= false
+        TagsSettings.showOthers = settings.showOthers ~= false
+        TagsSettings.showOwn = settings.showOwn ~= false
     end
-    if available then HeadTagsAvailable = available end
-    if selectedIndex then HeadTagsSelectedIndex = selectedIndex end
+    if available then AvailableTags = available end
+    if selectedIndex then SelectedTagIndex = selectedIndex end
 end)
 
-RegisterNetEvent('LonexDiscord:HeadTags:UpdatePlayerTag')
-AddEventHandler('LonexDiscord:HeadTags:UpdatePlayerTag', function(playerId, tagData)
-    HeadTagsData[playerId] = tagData
+RegisterNetEvent('LonexDiscord:Tags:UpdatePlayer')
+AddEventHandler('LonexDiscord:Tags:UpdatePlayer', function(playerId, tagData)
+    TagsData[playerId] = tagData
 end)
 
-RegisterNetEvent('LonexDiscord:HeadTags:PlayerLeft')
-AddEventHandler('LonexDiscord:HeadTags:PlayerLeft', function(playerId)
-    HeadTagsData[playerId] = nil
+RegisterNetEvent('LonexDiscord:Tags:PlayerLeft')
+AddEventHandler('LonexDiscord:Tags:PlayerLeft', function(playerId)
+    TagsData[playerId] = nil
 end)
 
-RegisterNetEvent('LonexDiscord:HeadTags:OpenMenu')
-AddEventHandler('LonexDiscord:HeadTags:OpenMenu', function(available, selectedIndex, settings)
-    if available then HeadTagsAvailable = available end
-    if selectedIndex then HeadTagsSelectedIndex = selectedIndex end
+RegisterNetEvent('LonexDiscord:Tags:OpenMenu')
+AddEventHandler('LonexDiscord:Tags:OpenMenu', function(available, selectedIndex, settings)
+    if available then AvailableTags = available end
+    if selectedIndex then SelectedTagIndex = selectedIndex end
     if settings then
-        HeadTagsSettings.showOthers = settings.showOthers ~= false
-        HeadTagsSettings.showOwn = settings.showOwn ~= false
+        TagsSettings.showOthers = settings.showOthers ~= false
+        TagsSettings.showOwn = settings.showOwn ~= false
     end
-    HeadTagsMenuOpen = true
-    HeadTagsMenuIndex = 1
+    MenuOpen = true
+    MenuIndex = 1
     PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
 end)
 
 AddEventHandler('playerSpawned', function()
-    if Config.HeadTags and Config.HeadTags.Enabled then
-        TriggerServerEvent('LonexDiscord:HeadTags:RequestSync')
+    if Config.Tags and Config.Tags.Enabled then
+        TriggerServerEvent('LonexDiscord:Tags:RequestSync')
     end
 end)
 
--- HeadTags 3D rendering
+-- ============================================================================
+-- HEAD TAGS RENDERER
+-- ============================================================================
+
 CreateThread(function()
     while true do
         local sleep = 500
-        if Config.HeadTags and Config.HeadTags.Enabled and (HeadTagsSettings.showOthers or HeadTagsSettings.showOwn) then
-            sleep = 0
-            local playerPed = PlayerPedId()
-            local playerCoords = GetEntityCoords(playerPed)
-            local maxDist = Config.HeadTags.MaxDistance or 20.0
-            local heightOffset = Config.HeadTags.HeightOffset or 1.0
-            local scale = Config.HeadTags.Scale or 0.4
-            local font = Config.HeadTags.Font or 4
-            local myId = PlayerId()
-            
-            for playerId, tagData in pairs(HeadTagsData) do
-                local targetPlayer = GetPlayerFromServerId(playerId)
-                if targetPlayer ~= -1 then
-                    local isMe = targetPlayer == myId
-                    local shouldShow = (isMe and HeadTagsSettings.showOwn) or (not isMe and HeadTagsSettings.showOthers)
-                    
-                    if shouldShow then
-                        local targetPed = GetPlayerPed(targetPlayer)
-                        if DoesEntityExist(targetPed) and not IsEntityDead(targetPed) then
-                            local targetCoords = GetEntityCoords(targetPed)
-                            local dist = #(playerCoords - targetCoords)
-                            if dist <= maxDist then
-                                local tag = tagData.tag or Config.HeadTags.DefaultTag
-                                local color = tag.color or { r = 255, g = 255, b = 255 }
-                                DrawText3D(targetCoords.x, targetCoords.y, targetCoords.z + heightOffset,
-                                    GetHeadTagDisplayText(playerId, tagData),
-                                    color.r, color.g, color.b, 255, scale, font)
+        
+        if Config.Tags and Config.Tags.Enabled and Config.Tags.HeadTags and Config.Tags.HeadTags.Enabled then
+            if TagsSettings.showOthers or TagsSettings.showOwn then
+                sleep = 0
+                
+                local ped = PlayerPedId()
+                local pos = GetEntityCoords(ped)
+                local maxDist = Config.Tags.HeadTags.MaxDistance or 20.0
+                local height = Config.Tags.HeadTags.HeightOffset or 1.0
+                local scale = Config.Tags.HeadTags.Scale or 0.35
+                local font = Config.Tags.HeadTags.Font or 4
+                local myId = PlayerId()
+                
+                for playerId, data in pairs(TagsData) do
+                    local target = GetPlayerFromServerId(playerId)
+                    if target ~= -1 then
+                        local isMe = target == myId
+                        local show = (isMe and TagsSettings.showOwn) or (not isMe and TagsSettings.showOthers)
+                        
+                        if show then
+                            local targetPed = GetPlayerPed(target)
+                            if DoesEntityExist(targetPed) and not IsEntityDead(targetPed) then
+                                local targetPos = GetEntityCoords(targetPed)
+                                local dist = #(pos - targetPos)
+                                if dist <= maxDist then
+                                    local tag = data.tag or Config.Tags.DefaultTag
+                                    local color = tag.color or { r = 255, g = 255, b = 255 }
+                                    DrawText3D(targetPos.x, targetPos.y, targetPos.z + height,
+                                        GetTagDisplayText(playerId, data),
+                                        color.r, color.g, color.b, scale, font)
+                                end
                             end
                         end
                     end
                 end
             end
         end
+        
         Wait(sleep)
     end
 end)
 
--- HeadTags Menu
+-- ============================================================================
+-- VOICE TAGS (Currently Talking)
+-- ============================================================================
+
 CreateThread(function()
     while true do
-        if HeadTagsMenuOpen then
-            -- Menu configuration
-            local menuX = 0.75
-            local menuY = 0.15
-            local menuW = 0.25
-            local headerH = 0.035
-            local itemH = 0.035
-            local padding = 0.005
+        local sleep = 100
+        
+        if Config.Tags and Config.Tags.Enabled and Config.Tags.VoiceTags and Config.Tags.VoiceTags.Enabled then
+            local talking = {}
+            local myId = PlayerId()
             
-            -- Build items list
-            local menuItems = {
-                { type = 'checkbox', label = "Show Other's Headtags", checked = HeadTagsSettings.showOthers },
-                { type = 'checkbox', label = "Show Your Headtag", checked = HeadTagsSettings.showOwn },
-                { type = 'separator', label = "SELECT HEADTAG" },
+            for playerId, data in pairs(TagsData) do
+                local target = GetPlayerFromServerId(playerId)
+                if target ~= -1 then
+                    local isMe = target == myId
+                    if NetworkIsPlayerTalking(target) then
+                        if not isMe or Config.Tags.VoiceTags.ShowSelf then
+                            table.insert(talking, {
+                                id = playerId,
+                                name = data.name or 'Unknown',
+                                tag = data.tag or Config.Tags.DefaultTag,
+                            })
+                        end
+                    end
+                end
+            end
+            
+            if #talking > 0 then
+                sleep = 0
+                
+                -- Header
+                SetTextFont(4)
+                SetTextScale(0.50, 0.50)
+                SetTextColour(255, 255, 255, 255)
+                SetTextCentre(true)
+                SetTextDropShadow()
+                SetTextOutline()
+                BeginTextCommandDisplayText('STRING')
+                AddTextComponentSubstringPlayerName('CURRENTLY TALKING')
+                EndTextCommandDisplayText(0.5, 0.012)
+                
+                -- Players
+                for i, player in ipairs(talking) do
+                    local y = 0.018 + (i * 0.025)
+                    local color = player.tag.color or { r = 255, g = 255, b = 255 }
+                    local text = player.tag.text .. ' | ' .. player.name
+                    
+                    SetTextFont(4)
+                    SetTextScale(0.42, 0.42)
+                    SetTextColour(color.r, color.g, color.b, 255)
+                    SetTextCentre(true)
+                    SetTextDropShadow()
+                    SetTextOutline()
+                    BeginTextCommandDisplayText('STRING')
+                    AddTextComponentSubstringPlayerName(text)
+                    EndTextCommandDisplayText(0.5, y)
+                end
+            end
+        end
+        
+        Wait(sleep)
+    end
+end)
+
+-- ============================================================================
+-- NATIVEUI MENU
+-- ============================================================================
+
+local Menu = {
+    width = 0.225,
+    headerH = 0.07,
+    subH = 0.032,
+    itemH = 0.038,
+}
+
+local function GetMenuX()
+    if Config.Tags and Config.Tags.MenuPosition == 'right' then
+        return 1.0 - 0.16
+    end
+    return 0.16
+end
+
+CreateThread(function()
+    while true do
+        if MenuOpen then
+            local menuX = GetMenuX()
+            
+            local items = {
+                { type = 'toggle', label = "Show Others' Tags", value = TagsSettings.showOthers },
+                { type = 'toggle', label = 'Show Own Tag', value = TagsSettings.showOwn },
+                { type = 'separator', label = 'SELECT TAG' },
             }
             
-            for i, tag in ipairs(HeadTagsAvailable) do
-                table.insert(menuItems, {
+            for i, tag in ipairs(AvailableTags) do
+                table.insert(items, {
                     type = 'tag',
                     label = tag.text or 'Unknown',
-                    color = tag.color or {r=255,g=255,b=255},
-                    tagIndex = i,
-                    selected = (i == HeadTagsSelectedIndex)
+                    color = tag.color or { r = 255, g = 255, b = 255 },
+                    index = i,
+                    active = (i == SelectedTagIndex)
                 })
             end
             
-            local itemCount = #menuItems
-            local totalH = headerH + (itemCount * itemH) + headerH + padding * 2
+            local selectableItems = {}
+            for i, item in ipairs(items) do
+                if item.type ~= 'separator' then
+                    table.insert(selectableItems, i)
+                end
+            end
+            local selectableCount = #selectableItems
             
-            -- Background
-            DrawMenuRect(menuX, menuY, menuW, totalH, 0, 0, 0, 230)
+            local startY = 0.15
             
             -- Header
-            DrawMenuRect(menuX, menuY, menuW, headerH, 140, 0, 0, 255)
-            DrawMenuText("HEADTAGS", menuX + menuW/2, menuY + 0.006, 0.45, 255, 255, 255, 255, 1, 1)
+            DrawSprite('commonmenu', 'gradient_bgd', menuX, startY + Menu.headerH/2, Menu.width, Menu.headerH, 0.0, 145, 30, 30, 255)
             
-            -- Subtitle
-            local subY = menuY + headerH
-            DrawMenuRect(menuX, subY, menuW, headerH * 0.7, 0, 0, 0, 255)
-            DrawMenuText("LonexDiscordAPI", menuX + padding, subY + 0.005, 0.3, 255, 255, 255, 200, 0, 0)
+            SetTextFont(1)
+            SetTextScale(0.85, 0.85)
+            SetTextColour(255, 255, 255, 255)
+            SetTextCentre(true)
+            SetTextDropShadow()
+            BeginTextCommandDisplayText('STRING')
+            AddTextComponentSubstringPlayerName('TAGS')
+            EndTextCommandDisplayText(menuX, startY + Menu.headerH/2 - 0.018)
+            
+            -- Subtitle bar
+            local subY = startY + Menu.headerH
+            DrawRect(menuX, subY + Menu.subH/2, Menu.width, Menu.subH, 0, 0, 0, 255)
+            
+            SetTextFont(0)
+            SetTextScale(0.30, 0.30)
+            SetTextColour(255, 255, 255, 255)
+            BeginTextCommandDisplayText('STRING')
+            AddTextComponentSubstringPlayerName('LonexDiscordAPI')
+            EndTextCommandDisplayText(menuX - Menu.width/2 + 0.005, subY + 0.006)
+            
+            SetTextFont(0)
+            SetTextScale(0.30, 0.30)
+            SetTextColour(255, 255, 255, 255)
+            SetTextRightJustify(true)
+            SetTextWrap(0.0, menuX + Menu.width/2 - 0.005)
+            BeginTextCommandDisplayText('STRING')
+            AddTextComponentSubstringPlayerName(MenuIndex .. ' / ' .. selectableCount)
+            EndTextCommandDisplayText(menuX + Menu.width/2 - 0.005, subY + 0.006)
             
             -- Items
-            local currentY = subY + headerH * 0.7 + padding
+            local itemY = subY + Menu.subH
+            local currentSelectable = 0
             
-            for i, item in ipairs(menuItems) do
-                local itemY = currentY + (i - 1) * itemH
-                local isHovered = (i == HeadTagsMenuIndex)
+            for i, item in ipairs(items) do
+                local y = itemY + (i - 1) * Menu.itemH + Menu.itemH/2
                 
                 if item.type == 'separator' then
-                    -- Separator
-                    DrawMenuRect(menuX, itemY, menuW, itemH, 30, 30, 30, 255)
-                    DrawMenuText(item.label, menuX + menuW/2, itemY + 0.008, 0.28, 150, 150, 150, 255, 0, 1)
+                    DrawRect(menuX, y, Menu.width, Menu.itemH, 15, 15, 15, 255)
+                    
+                    SetTextFont(0)
+                    SetTextScale(0.28, 0.28)
+                    SetTextColour(100, 150, 255, 255)
+                    SetTextCentre(true)
+                    BeginTextCommandDisplayText('STRING')
+                    AddTextComponentSubstringPlayerName(item.label)
+                    EndTextCommandDisplayText(menuX, y - 0.01)
                 else
-                    -- Regular item
-                    if isHovered then
-                        DrawMenuRect(menuX, itemY, menuW, itemH, 255, 255, 255, 255)
+                    currentSelectable = currentSelectable + 1
+                    local isSelected = currentSelectable == MenuIndex
+                    
+                    if isSelected then
+                        DrawRect(menuX, y, Menu.width, Menu.itemH, 255, 255, 255, 255)
+                    else
+                        DrawRect(menuX, y, Menu.width, Menu.itemH, 0, 0, 0, 160)
                     end
                     
                     local tr, tg, tb = 255, 255, 255
-                    if isHovered then tr, tg, tb = 0, 0, 0 end
+                    if isSelected then tr, tg, tb = 0, 0, 0 end
                     
-                    DrawMenuText(item.label, menuX + padding, itemY + 0.008, 0.32, tr, tg, tb, 255, 0, 0)
+                    SetTextFont(0)
+                    SetTextScale(0.30, 0.30)
+                    SetTextColour(tr, tg, tb, 255)
+                    BeginTextCommandDisplayText('STRING')
+                    AddTextComponentSubstringPlayerName(item.label)
+                    EndTextCommandDisplayText(menuX - Menu.width/2 + 0.006, y - 0.01)
                     
-                    if item.type == 'checkbox' then
-                        local status = item.checked and "ON" or "OFF"
-                        local sr, sg, sb = 100, 255, 100
-                        if not item.checked then sr, sg, sb = 255, 100, 100 end
-                        if isHovered then
-                            sr, sg, sb = 0, 100, 0
-                            if not item.checked then sr, sg, sb = 100, 0, 0 end
+                    if item.type == 'toggle' then
+                        -- Checkbox using sprites
+                        local checkX = menuX + Menu.width/2 - 0.018
+                        local checkY = y
+                        
+                        if item.value then
+                            if isSelected then
+                                DrawSprite('commonmenu', 'shop_box_tickb', checkX, checkY, 0.022, 0.04, 0.0, 255, 255, 255, 255)
+                            else
+                                DrawSprite('commonmenu', 'shop_box_tick', checkX, checkY, 0.022, 0.04, 0.0, 255, 255, 255, 255)
+                            end
+                        else
+                            if isSelected then
+                                DrawSprite('commonmenu', 'shop_box_blankb', checkX, checkY, 0.022, 0.04, 0.0, 255, 255, 255, 255)
+                            else
+                                DrawSprite('commonmenu', 'shop_box_blank', checkX, checkY, 0.022, 0.04, 0.0, 255, 255, 255, 255)
+                            end
                         end
-                        DrawMenuText(status, menuX + menuW - padding, itemY + 0.008, 0.32, sr, sg, sb, 255, 0, 2)
                         
                     elseif item.type == 'tag' then
-                        -- Color swatch
-                        local swatchX = menuX + menuW - padding - 0.015
-                        local swatchY = itemY + itemH/2
-                        DrawRect(swatchX, swatchY, 0.015, 0.018, item.color.r, item.color.g, item.color.b, 255)
+                        local swatchX = menuX + Menu.width/2 - 0.016
+                        DrawRect(swatchX, y, 0.020, 0.024, item.color.r, item.color.g, item.color.b, 255)
                         
-                        -- Selected indicator
-                        if item.selected then
-                            DrawMenuText(">", menuX + menuW - padding - 0.035, itemY + 0.008, 0.32, tr, tg, tb, 255, 0, 0)
+                        if item.active then
+                            SetTextFont(0)
+                            SetTextScale(0.35, 0.35)
+                            SetTextColour(tr, tg, tb, 255)
+                            SetTextRightJustify(true)
+                            SetTextWrap(0.0, menuX + Menu.width/2 - 0.032)
+                            BeginTextCommandDisplayText('STRING')
+                            AddTextComponentSubstringPlayerName('~g~>>')
+                            EndTextCommandDisplayText(menuX + Menu.width/2 - 0.032, y - 0.012)
                         end
                     end
                 end
             end
             
-            -- Footer
-            local footerY = currentY + itemCount * itemH
-            DrawMenuRect(menuX, footerY, menuW, headerH, 0, 0, 0, 255)
-            DrawMenuText("UP/DOWN  ENTER  ESC", menuX + menuW/2, footerY + 0.008, 0.25, 200, 200, 200, 200, 0, 1)
+            -- Footer gradient
+            local footerY = itemY + #items * Menu.itemH
+            DrawSprite('commonmenu', 'gradient_bgd', menuX, footerY + 0.012, Menu.width, 0.024, 180.0, 30, 30, 30, 255)
             
-            -- Input handling
+            -- Input
+            DisableControlAction(0, 172, true)
+            DisableControlAction(0, 173, true)
+            DisableControlAction(0, 176, true)
+            DisableControlAction(0, 177, true)
             DisableControlAction(0, 200, true)
             
-            -- Navigate up
             if IsDisabledControlJustPressed(0, 172) then
-                repeat
-                    HeadTagsMenuIndex = HeadTagsMenuIndex - 1
-                    if HeadTagsMenuIndex < 1 then HeadTagsMenuIndex = itemCount end
-                until menuItems[HeadTagsMenuIndex].type ~= 'separator'
+                MenuIndex = MenuIndex - 1
+                if MenuIndex < 1 then MenuIndex = selectableCount end
                 PlaySoundFrontend(-1, 'NAV_UP_DOWN', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
             end
             
-            -- Navigate down
             if IsDisabledControlJustPressed(0, 173) then
-                repeat
-                    HeadTagsMenuIndex = HeadTagsMenuIndex + 1
-                    if HeadTagsMenuIndex > itemCount then HeadTagsMenuIndex = 1 end
-                until menuItems[HeadTagsMenuIndex].type ~= 'separator'
+                MenuIndex = MenuIndex + 1
+                if MenuIndex > selectableCount then MenuIndex = 1 end
                 PlaySoundFrontend(-1, 'NAV_UP_DOWN', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
             end
             
-            -- Select
             if IsDisabledControlJustPressed(0, 176) then
-                local item = menuItems[HeadTagsMenuIndex]
-                if item.type == 'checkbox' then
-                    if HeadTagsMenuIndex == 1 then
-                        HeadTagsSettings.showOthers = not HeadTagsSettings.showOthers
-                        TriggerServerEvent('LonexDiscord:HeadTags:UpdateMySettings', { showOthers = HeadTagsSettings.showOthers })
-                    elseif HeadTagsMenuIndex == 2 then
-                        HeadTagsSettings.showOwn = not HeadTagsSettings.showOwn
-                        TriggerServerEvent('LonexDiscord:HeadTags:UpdateMySettings', { showOwn = HeadTagsSettings.showOwn })
+                local actualIndex = selectableItems[MenuIndex]
+                local item = items[actualIndex]
+                
+                if item.type == 'toggle' then
+                    if item.label:find('Others') then
+                        TagsSettings.showOthers = not TagsSettings.showOthers
+                        TriggerServerEvent('LonexDiscord:Tags:UpdateSettings', { showOthers = TagsSettings.showOthers })
+                    else
+                        TagsSettings.showOwn = not TagsSettings.showOwn
+                        TriggerServerEvent('LonexDiscord:Tags:UpdateSettings', { showOwn = TagsSettings.showOwn })
                     end
                     PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
+                    
                 elseif item.type == 'tag' then
-                    HeadTagsSelectedIndex = item.tagIndex
-                    TriggerServerEvent('LonexDiscord:HeadTags:SelectTag', item.tagIndex)
+                    SelectedTagIndex = item.index
+                    TriggerServerEvent('LonexDiscord:Tags:SelectTag', item.index)
                     PlaySoundFrontend(-1, 'SELECT', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
                 end
             end
             
-            -- Close
             if IsDisabledControlJustPressed(0, 177) or IsDisabledControlJustPressed(0, 200) then
-                HeadTagsMenuOpen = false
+                MenuOpen = false
                 PlaySoundFrontend(-1, 'BACK', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
             end
         end
         
-        Wait(HeadTagsMenuOpen and 0 or 500)
+        Wait(MenuOpen and 0 or 500)
+    end
+end)
+
+-- ============================================================================
+-- EMERGENCY CALLS (Client)
+-- ============================================================================
+
+---Get the street name at current position
+local function GetStreetName(coords)
+    local streetHash, crossingHash = GetStreetNameAtCoord(coords.x, coords.y, coords.z)
+    local streetName = GetStreetNameFromHashKey(streetHash)
+    
+    if crossingHash ~= 0 then
+        local crossingName = GetStreetNameFromHashKey(crossingHash)
+        if crossingName and crossingName ~= '' then
+            return streetName .. ' / ' .. crossingName
+        end
+    end
+    
+    return streetName or 'Unknown Location'
+end
+
+---Get zone name
+local function GetZoneName(coords)
+    local zone = GetNameOfZone(coords.x, coords.y, coords.z)
+    return GetLabelText(zone) or zone
+end
+
+-- Event: Server requests location for emergency call
+RegisterNetEvent('LonexDiscord:EmergencyCall:GetLocation')
+AddEventHandler('LonexDiscord:EmergencyCall:GetLocation', function(callType, message)
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+    local street = GetStreetName(coords)
+    local zone = GetZoneName(coords)
+    
+    local fullLocation = street
+    if zone and zone ~= '' and zone ~= 'Unknown' then
+        fullLocation = street .. ', ' .. zone
+    end
+    
+    -- Send back to server
+    TriggerServerEvent('LonexDiscord:EmergencyCall:Submit', callType, message, {
+        x = coords.x,
+        y = coords.y,
+        z = coords.z,
+    }, fullLocation)
+end)
+
+-- Event: Set waypoint to call location
+RegisterNetEvent('LonexDiscord:EmergencyCall:SetWaypoint')
+AddEventHandler('LonexDiscord:EmergencyCall:SetWaypoint', function(coords)
+    if coords and coords.x and coords.y then
+        SetNewWaypoint(coords.x, coords.y)
+        PlaySoundFrontend(-1, 'WAYPOINT_SET', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
+    end
+end)
+
+-- Event: Notification sound for new call
+RegisterNetEvent('LonexDiscord:EmergencyCall:Notify')
+AddEventHandler('LonexDiscord:EmergencyCall:Notify', function(callType, callId)
+    PlaySoundFrontend(-1, 'FLIGHT_SCHOOL_LESSON_PASSED', 'HUD_AWARDS', true)
+end)
+
+-- ============================================================================
+-- SERVER UTILITIES (AOP, PeaceTime, Announcements, Postals, HUD)
+-- ============================================================================
+
+local ServerUtils = {
+    AOP = nil,
+    PeaceTime = false,
+    HUDEnabled = true,
+    NearestPostal = nil,
+    NearestPostalDist = 0,
+}
+
+-- Announcement display state
+local CurrentAnnouncement = nil
+local AnnouncementEndTime = 0
+
+-- Cached location data (updated periodically, not every frame)
+local CachedStreet = ''
+local CachedZone = ''
+local CachedPostal = '---'
+local CachedCompass = 'N'
+
+---Get compass direction from heading
+local function GetCompassDirection(heading)
+    local directions = { [0] = 'N', [45] = 'NE', [90] = 'E', [135] = 'SE', [180] = 'S', [225] = 'SW', [270] = 'W', [315] = 'NW', [360] = 'N' }
+    local h = math.floor((heading + 22.5) % 360 / 45) * 45
+    return directions[h] or 'N'
+end
+
+---Get current street and zone
+local function GetLocationInfo()
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+    
+    local streetHash, crossingHash = GetStreetNameAtCoord(coords.x, coords.y, coords.z)
+    local street = GetStreetNameFromHashKey(streetHash) or ''
+    
+    local zone = GetNameOfZone(coords.x, coords.y, coords.z)
+    local zoneName = GetLabelText(zone)
+    if zoneName == 'NULL' then zoneName = zone end
+    
+    -- If there's a crossing, show it in the zone line
+    local zoneDisplay = zoneName
+    if crossingHash ~= 0 then
+        local crossing = GetStreetNameFromHashKey(crossingHash)
+        if crossing and crossing ~= '' then
+            zoneDisplay = crossing .. ', ' .. zoneName
+        end
+    end
+    
+    return street, zoneDisplay
+end
+
+---Find nearest postal
+local function UpdateNearestPostal()
+    if not Postals then return end
+    
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+    
+    local nearest = nil
+    local nearestDist = 999999
+    
+    for _, postal in ipairs(Postals) do
+        local dist = #(coords - vector3(postal.x, postal.y, coords.z))
+        if dist < nearestDist then
+            nearestDist = dist
+            nearest = postal
+        end
+    end
+    
+    ServerUtils.NearestPostal = nearest and nearest.code or nil
+    ServerUtils.NearestPostalDist = math.floor(nearestDist)
+end
+
+---Draw text helper
+local function Draw2DText(x, y, text, scale)
+    SetTextFont(4)
+    SetTextProportional(7)
+    SetTextScale(scale, scale)
+    SetTextColour(255, 255, 255, 255)
+    SetTextDropShadow(0, 0, 0, 0, 255)
+    SetTextDropShadow()
+    SetTextEdge(4, 0, 0, 0, 255)
+    SetTextOutline()
+    SetTextEntry("STRING")
+    AddTextComponentString(text)
+    DrawText(x, y)
+end
+
+---Get player's current tag (if using Tags system)
+local function GetPlayerTag()
+    if not Config.Tags or not Config.Tags.Enabled then return 'Player' end
+    
+    local playerId = GetPlayerServerId(PlayerId())
+    local playerData = TagsData[playerId]
+    
+    if playerData and playerData.tag and playerData.tag.text then
+        return playerData.tag.text
+    end
+    
+    return 'Player'
+end
+
+---Replace placeholders in display text
+local function ReplaceDisplayPlaceholders(text)
+    local replacements = {
+        ['{AOP}'] = ServerUtils.AOP or 'All of San Andreas',
+        ['{CURRENT_AOP}'] = ServerUtils.AOP or 'All of San Andreas',
+        ['{PEACETIME}'] = ServerUtils.PeaceTime and '~g~ON' or '~r~OFF',
+        ['{STREET}'] = CachedStreet or 'Unknown',
+        ['{STREET_NAME}'] = CachedStreet or 'Unknown',
+        ['{ZONE}'] = CachedZone or 'Unknown',
+        ['{CITY}'] = CachedZone or 'Unknown',
+        ['{COMPASS}'] = CachedCompass or 'N',
+        ['{POSTAL}'] = CachedPostal or '---',
+        ['{NEAREST_POSTAL}'] = CachedPostal or '---',
+        ['{POSTAL_DIST}'] = tostring(ServerUtils.NearestPostalDist or 0),
+        ['{NEAREST_POSTAL_DISTANCE}'] = tostring(ServerUtils.NearestPostalDist or 0),
+        ['{ID}'] = tostring(GetPlayerServerId(PlayerId())),
+        ['{PLAYERS}'] = tostring(#GetActivePlayers()),
+        ['{TAG}'] = GetPlayerTag(),
+    }
+    
+    for placeholder, value in pairs(replacements) do
+        text = text:gsub(placeholder, value)
+    end
+    
+    return text
+end
+
+---Draw the configurable HUD displays
+local function DrawConfigurableHUD()
+    if not Config.ServerHUD or not Config.ServerHUD.Enabled then return end
+    if not ServerUtils.HUDEnabled then return end
+    
+    -- Draw watermark if enabled
+    if Config.ServerHUD.Watermark and Config.ServerHUD.Watermark.Enabled then
+        local wm = Config.ServerHUD.Watermark
+        Draw2DText(wm.x or 0.165, wm.y or 0.80, wm.Text or '', wm.scale or 0.35)
+    end
+    
+    -- Draw configurable displays
+    if Config.ServerHUD.Displays then
+        for name, display in pairs(Config.ServerHUD.Displays) do
+            if display.enabled then
+                local text = ReplaceDisplayPlaceholders(display.display)
+                Draw2DText(display.x, display.y, text, display.scale or 0.4)
+            end
+        end
+    end
+end
+
+-- Check if any utility feature is enabled
+local function AnyUtilityEnabled()
+    return (Config.AOP and Config.AOP.Enabled) or
+           (Config.PeaceTime and Config.PeaceTime.Enabled) or
+           (Config.Announcements and Config.Announcements.Enabled) or
+           (Config.Postals and Config.Postals.Enabled) or
+           (Config.ServerHUD and Config.ServerHUD.Enabled)
+end
+
+-- Request state on spawn
+CreateThread(function()
+    Wait(2000)
+    if AnyUtilityEnabled() then
+        TriggerServerEvent('LonexDiscord:Utils:RequestState')
+    end
+end)
+
+-- Sync state from server
+RegisterNetEvent('LonexDiscord:Utils:SyncState')
+AddEventHandler('LonexDiscord:Utils:SyncState', function(state)
+    if state.aop then ServerUtils.AOP = state.aop end
+    if state.peacetime ~= nil then ServerUtils.PeaceTime = state.peacetime end
+end)
+
+-- AOP changed
+RegisterNetEvent('LonexDiscord:AOP:Changed')
+AddEventHandler('LonexDiscord:AOP:Changed', function(newAOP)
+    ServerUtils.AOP = newAOP
+end)
+
+-- PeaceTime changed
+RegisterNetEvent('LonexDiscord:PeaceTime:Changed')
+AddEventHandler('LonexDiscord:PeaceTime:Changed', function(enabled)
+    ServerUtils.PeaceTime = enabled
+end)
+
+-- PeaceTime Restrictions Enforcement
+local LastSpeedWarning = 0
+
+-- Display notification helper
+local function ShowPeaceTimeNotification(message)
+    SetTextComponentFormat('STRING')
+    AddTextComponentString(message)
+    DisplayHelpTextFromStringLabel(0, 0, 1, -1)
+end
+
+-- PeaceTime weapon restriction thread
+CreateThread(function()
+    while true do
+        local sleep = 500
+        
+        -- Only enforce if PeaceTime is enabled and restrictions are configured
+        if ServerUtils.PeaceTime and Config.PeaceTime and Config.PeaceTime.Restrictions then
+            local restrictions = Config.PeaceTime.Restrictions
+            
+            -- Disable weapons
+            if restrictions.DisableWeapons then
+                sleep = 0
+                local playerPed = PlayerPedId()
+                local currentWeapon = GetSelectedPedWeapon(playerPed)
+                
+                -- Check if player has a weapon out (not unarmed)
+                if currentWeapon ~= GetHashKey('WEAPON_UNARMED') then
+                    -- Remove the weapon and show notification
+                    SetCurrentPedWeapon(playerPed, GetHashKey('WEAPON_UNARMED'), true)
+                    local msg = Config.PeaceTime.Messages and Config.PeaceTime.Messages.WeaponBlocked or '~r~Weapons are disabled during PeaceTime!'
+                    ShowPeaceTimeNotification(msg)
+                    PlaySoundFrontend(-1, 'ERROR', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
+                end
+                
+                -- Disable firing (extra protection)
+                DisablePlayerFiring(playerPed, true)
+            end
+        end
+        
+        Wait(sleep)
+    end
+end)
+
+-- PeaceTime speed restriction thread
+CreateThread(function()
+    while true do
+        local sleep = 1000
+        
+        -- Only enforce if PeaceTime is enabled and speed limit is configured
+        if ServerUtils.PeaceTime and Config.PeaceTime and Config.PeaceTime.Restrictions then
+            local speedConfig = Config.PeaceTime.Restrictions.SpeedLimit
+            
+            if speedConfig and speedConfig.Enabled then
+                local playerPed = PlayerPedId()
+                local vehicle = GetVehiclePedIsIn(playerPed, false)
+                
+                if vehicle ~= 0 then
+                    -- Get speed in m/s and convert
+                    local speedMs = GetEntitySpeed(vehicle)
+                    local speed, limit, unit
+                    
+                    if speedConfig.Unit == 'kmh' then
+                        speed = speedMs * 3.6  -- Convert to km/h
+                        limit = speedConfig.Limit or 105
+                        unit = 'km/h'
+                    else
+                        speed = speedMs * 2.236936  -- Convert to mph
+                        limit = speedConfig.Limit or 65
+                        unit = 'mph'
+                    end
+                    
+                    -- Check if over the limit
+                    if speed > limit then
+                        local now = GetGameTimer()
+                        local interval = (speedConfig.WarningInterval or 5) * 1000
+                        
+                        if now - LastSpeedWarning > interval then
+                            LastSpeedWarning = now
+                            local msg = Config.PeaceTime.Messages and Config.PeaceTime.Messages.SpeedWarning or '~y~Slow down! Speed limit during PeaceTime is %s %s'
+                            ShowPeaceTimeNotification(string.format(msg, limit, unit))
+                            PlaySoundFrontend(-1, 'RACE_PLACED', 'HUD_AWARDS', true)
+                        end
+                    end
+                end
+            end
+        end
+        
+        Wait(sleep)
+    end
+end)
+
+-- Announcement received
+RegisterNetEvent('LonexDiscord:Announcement:Show')
+AddEventHandler('LonexDiscord:Announcement:Show', function(data)
+    CurrentAnnouncement = data
+    AnnouncementEndTime = GetGameTimer() + (data.duration * 1000)
+    PlaySoundFrontend(-1, 'FLIGHT_SCHOOL_LESSON_PASSED', 'HUD_AWARDS', true)
+end)
+
+-- Set postal waypoint
+RegisterNetEvent('LonexDiscord:Postal:Set')
+AddEventHandler('LonexDiscord:Postal:Set', function(postal)
+    if postal and postal.x and postal.y then
+        SetNewWaypoint(postal.x, postal.y)
+        PlaySoundFrontend(-1, 'WAYPOINT_SET', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
+    end
+end)
+
+-- Cancel postal waypoint
+RegisterNetEvent('LonexDiscord:Postal:Cancel')
+AddEventHandler('LonexDiscord:Postal:Cancel', function()
+    if IsWaypointActive() then
+        SetWaypointOff()
+    end
+end)
+
+-- HUD toggle command
+CreateThread(function()
+    Wait(1000)
+    
+    if not Config.ServerHUD or not Config.ServerHUD.Enabled then return end
+    
+    if Config.ServerHUD.ToggleCommand then
+        RegisterCommand(Config.ServerHUD.ToggleCommand, function()
+            ServerUtils.HUDEnabled = not ServerUtils.HUDEnabled
+            if ServerUtils.HUDEnabled then
+                TriggerEvent('chat:addMessage', { args = { '^2HUD enabled.' } })
+            else
+                TriggerEvent('chat:addMessage', { args = { '^1HUD disabled.' } })
+            end
+        end, false)
+    end
+end)
+
+-- Update nearest postal and location periodically
+CreateThread(function()
+    while true do
+        Wait(200) -- Update more frequently for smoother compass
+        
+        if (Config.Postals and Config.Postals.Enabled) or (Config.ServerHUD and Config.ServerHUD.Enabled) then
+            UpdateNearestPostal()
+            CachedPostal = ServerUtils.NearestPostal or '---'
+        end
+        
+        if Config.ServerHUD and Config.ServerHUD.Enabled then
+            -- Update location info
+            local street, zone = GetLocationInfo()
+            CachedStreet = street or 'Unknown'
+            CachedZone = zone or 'Unknown'
+            
+            -- Update compass
+            local playerPed = PlayerPedId()
+            local heading = GetEntityHeading(playerPed)
+            CachedCompass = GetCompassDirection(heading)
+        end
+    end
+end)
+
+-- HUD and Announcement render loop
+CreateThread(function()
+    while true do
+        local sleep = 500
+        
+        -- Draw HUD
+        if Config.ServerHUD and Config.ServerHUD.Enabled and ServerUtils.HUDEnabled then
+            sleep = 0
+            DrawConfigurableHUD()
+        end
+        
+        -- Draw announcement
+        if CurrentAnnouncement and GetGameTimer() < AnnouncementEndTime then
+            sleep = 0
+            
+            local y = CurrentAnnouncement.position or 0.3
+            
+            -- Draw header
+            SetTextFont(4)
+            SetTextScale(0.6, 0.6)
+            SetTextColour(255, 255, 255, 255)
+            SetTextCentre(true)
+            SetTextOutline()
+            SetTextEntry('STRING')
+            AddTextComponentString(CurrentAnnouncement.header or '~b~[~p~Announcement~b~]')
+            DrawText(0.5, y)
+            
+            -- Draw message
+            SetTextFont(4)
+            SetTextScale(0.5, 0.5)
+            SetTextColour(255, 255, 255, 255)
+            SetTextCentre(true)
+            SetTextOutline()
+            SetTextEntry('STRING')
+            AddTextComponentString(CurrentAnnouncement.message)
+            DrawText(0.5, y + 0.04)
+        else
+            CurrentAnnouncement = nil
+        end
+        
+        Wait(sleep)
     end
 end)

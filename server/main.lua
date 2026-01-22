@@ -1,12 +1,90 @@
 -- LonexDiscordAPI Server
 
 local REQUIRED_RESOURCE_NAME = 'LonexDiscordAPI'
+local CURRENT_VERSION = GetResourceMetadata(GetCurrentResourceName(), 'version', 0) or '0.0.0'
+local GITHUB_REPO = 'LonexLabs/LonexDiscordAPI'
 
 if GetCurrentResourceName() ~= REQUIRED_RESOURCE_NAME then
     print('^1[LonexDiscord] ERROR: Resource must be named "' .. REQUIRED_RESOURCE_NAME .. '"!^0')
     print('^1[LonexDiscord] Current name: "' .. GetCurrentResourceName() .. '"^0')
     print('^3[LonexDiscord] Please rename the resource folder to "' .. REQUIRED_RESOURCE_NAME .. '"^0')
     return
+end
+
+-- VERSION CHECKER
+
+local function ParseVersion(versionStr)
+    local major, minor, patch = versionStr:match('^v?(%d+)%.(%d+)%.(%d+)')
+    if major then
+        return {
+            major = tonumber(major),
+            minor = tonumber(minor),
+            patch = tonumber(patch),
+            str = versionStr
+        }
+    end
+    return nil
+end
+
+local function IsNewerVersion(current, latest)
+    if not current or not latest then return false end
+    
+    if latest.major > current.major then return true end
+    if latest.major < current.major then return false end
+    
+    if latest.minor > current.minor then return true end
+    if latest.minor < current.minor then return false end
+    
+    return latest.patch > current.patch
+end
+
+local function IsSameVersion(current, latest)
+    if not current or not latest then return false end
+    return current.major == latest.major and current.minor == latest.minor and current.patch == latest.patch
+end
+
+local function CheckForUpdates()
+    local url = 'https://api.github.com/repos/' .. GITHUB_REPO .. '/releases/latest'
+    
+    PerformHttpRequest(url, function(statusCode, response, headers)
+        if statusCode ~= 200 then
+            if Config.Debug then
+                print('^3[LonexDiscord] Could not check for updates (HTTP ' .. tostring(statusCode) .. ')^0')
+            end
+            return
+        end
+        
+        local data = json.decode(response)
+        if not data or not data.tag_name then
+            return
+        end
+        
+        local latestVersion = ParseVersion(data.tag_name)
+        local currentVersion = ParseVersion(CURRENT_VERSION)
+        
+        if IsNewerVersion(currentVersion, latestVersion) then
+            -- Update available
+            print('')
+            print('^3╔══════════════════════════════════════════════════════════════╗^0')
+            print('^3║^0              ^1LonexDiscordAPI Update Available^0               ^3║^0')
+            print('^3╠══════════════════════════════════════════════════════════════╣^0')
+            print('^3║^0  Current Version: ^1' .. CURRENT_VERSION .. string.rep(' ', 44 - #CURRENT_VERSION) .. '^3║^0')
+            print('^3║^0  Latest Version:  ^2' .. data.tag_name .. string.rep(' ', 44 - #data.tag_name) .. '^3║^0')
+            print('^3╠══════════════════════════════════════════════════════════════╣^0')
+            print('^3║^0  Download: ^4https://github.com/' .. GITHUB_REPO .. '/releases^0  ^3║^0')
+            print('^3╚══════════════════════════════════════════════════════════════╝^0')
+            print('')
+        elseif IsSameVersion(currentVersion, latestVersion) then
+            -- Same version - up to date
+            print('^2[LonexDiscord] ^0v' .. CURRENT_VERSION .. ' - Up to date!')
+        else
+            -- Current is newer than latest (development/unreleased version)
+            print('^3[LonexDiscord] ^0v' .. CURRENT_VERSION .. ' - Development version (latest release: ' .. data.tag_name .. ')')
+        end
+    end, 'GET', '', {
+        ['User-Agent'] = 'LonexDiscordAPI/' .. CURRENT_VERSION,
+        ['Accept'] = 'application/vnd.github.v3+json'
+    })
 end
 
 -- STARTUP VALIDATION
@@ -23,7 +101,20 @@ CreateThread(function()
         print('^1[LonexDiscord] ERROR: Guild ID not configured!^0')
         print('^3[LonexDiscord] Set the convar: set lonex_discord_guild "YOUR_GUILD_ID"^0')
     end
+    
+    -- Check for updates after a short delay
+    Wait(5000)
+    if Config.CheckUpdates ~= false then
+        CheckForUpdates()
+    end
 end)
+
+-- Console command to check for updates
+RegisterCommand('lonex_update', function(source)
+    if source ~= 0 then return end -- Server console only
+    print('[LonexDiscord] Checking for updates...')
+    CheckForUpdates()
+end, true)
 
 
 LonexDiscord = LonexDiscord or {}
@@ -2409,124 +2500,15 @@ end)
 
 LonexDiscord.WeaponVehicle = WeaponVehicleModule
 
--- CHAT ROLES MODULE
+-- UNIFIED TAGS MODULE (Head Tags, Chat Tags, Voice Tags)
 
-local ChatRolesModule = {}
-local PlayerChatRoles = {}
-
-function ChatRolesModule.GetPlayerChatRole(source)
-    if not Config.ChatRoles or not Config.ChatRoles.Enabled then
-        return nil
-    end
-    
-    -- Check cache first
-    if PlayerChatRoles[source] then
-        return PlayerChatRoles[source]
-    end
-    
-    local discordId = Utils.GetDiscordIdentifier(source)
-    
-    if not discordId then
-        return Config.ChatRoles.DefaultRole
-    end
-    
-    local roleIds, err = API.GetMemberRoleIds(discordId)
-    
-    if not roleIds then
-        return Config.ChatRoles.DefaultRole
-    end
-    
-    -- Convert roleIds to a set for faster lookup
-    local playerRoleSet = {}
-    for _, roleId in ipairs(roleIds) do
-        playerRoleSet[roleId] = true
-    end
-    
-    -- Find highest priority role (last in list that player has)
-    local highestRole = Config.ChatRoles.DefaultRole
-    
-    if Config.ChatRoles.Roles then
-        for _, roleConfig in ipairs(Config.ChatRoles.Roles) do
-            if playerRoleSet[roleConfig.roleId] then
-                highestRole = roleConfig
-            end
-        end
-    end
-    
-    -- Cache it
-    PlayerChatRoles[source] = highestRole
-    
-    return highestRole
-end
-
-function ChatRolesModule.GetChatPrefix(source)
-    local role = ChatRolesModule.GetPlayerChatRole(source)
-    
-    if role and role.prefix then
-        return role.prefix
-    end
-    
-    return ''
-end
-
-function ChatRolesModule.RefreshPlayerRole(source)
-    PlayerChatRoles[source] = nil
-    return ChatRolesModule.GetPlayerChatRole(source)
-end
-
-function ChatRolesModule.ClearPlayerRole(source)
-    PlayerChatRoles[source] = nil
-end
-
--- Clear chat role cache on disconnect
-AddEventHandler('playerDropped', function()
-    local source = source
-    ChatRolesModule.ClearPlayerRole(source)
-end)
-
--- Chat message handler
-AddEventHandler('chatMessage', function(source, name, message)
-    if not Config.ChatRoles or not Config.ChatRoles.Enabled then
-        return
-    end
-    
-    local prefix = ChatRolesModule.GetChatPrefix(source)
-    
-    if prefix and prefix ~= '' then
-        -- Cancel original message
-        CancelEvent()
-        
-        -- Send modified message with prefix
-        TriggerClientEvent('chat:addMessage', -1, {
-            args = { prefix .. name, message },
-            color = { 255, 255, 255 }
-        })
-    end
-end)
-
-exports('GetPlayerChatRole', function(source)
-    return ChatRolesModule.GetPlayerChatRole(source)
-end)
-
-exports('GetChatPrefix', function(source)
-    return ChatRolesModule.GetChatPrefix(source)
-end)
-
-exports('RefreshPlayerChatRole', function(source)
-    return ChatRolesModule.RefreshPlayerRole(source)
-end)
-
-LonexDiscord.ChatRoles = ChatRolesModule
-
--- HEADTAGS MODULE
-
-local HeadTagsModule = {}
+local TagsModule = {}
 local PlayerAvailableTags = {}
 local PlayerSelectedTag = {}
-local PlayerHeadTagSettings = {}
+local PlayerTagSettings = {}
 
-function HeadTagsModule.GetPlayerAvailableTags(source)
-    if not Config.HeadTags or not Config.HeadTags.Enabled then
+function TagsModule.GetPlayerAvailableTags(source)
+    if not Config.Tags or not Config.Tags.Enabled then
         return {}
     end
     
@@ -2537,9 +2519,8 @@ function HeadTagsModule.GetPlayerAvailableTags(source)
     local discordId = Utils.GetDiscordIdentifier(source)
     local available = {}
     
-    -- Always add default tag first
-    if Config.HeadTags.DefaultTag then
-        table.insert(available, Config.HeadTags.DefaultTag)
+    if Config.Tags.DefaultTag then
+        table.insert(available, Config.Tags.DefaultTag)
     end
     
     if discordId then
@@ -2551,8 +2532,8 @@ function HeadTagsModule.GetPlayerAvailableTags(source)
                 playerRoleSet[roleId] = true
             end
             
-            if Config.HeadTags.Roles then
-                for _, roleConfig in ipairs(Config.HeadTags.Roles) do
+            if Config.Tags.Roles then
+                for _, roleConfig in ipairs(Config.Tags.Roles) do
                     if playerRoleSet[roleConfig.roleId] then
                         table.insert(available, roleConfig)
                     end
@@ -2565,76 +2546,71 @@ function HeadTagsModule.GetPlayerAvailableTags(source)
     return available
 end
 
-function HeadTagsModule.GetPlayerHeadTag(source)
-    if not Config.HeadTags or not Config.HeadTags.Enabled then
+function TagsModule.GetPlayerTag(source)
+    if not Config.Tags or not Config.Tags.Enabled then
         return nil
     end
     
-    local available = HeadTagsModule.GetPlayerAvailableTags(source)
+    local available = TagsModule.GetPlayerAvailableTags(source)
     local selectedIndex = PlayerSelectedTag[source] or #available
     
-    if selectedIndex > #available then
-        selectedIndex = #available
-    end
-    if selectedIndex < 1 then
-        selectedIndex = 1
-    end
+    if selectedIndex > #available then selectedIndex = #available end
+    if selectedIndex < 1 then selectedIndex = 1 end
     
-    return available[selectedIndex] or Config.HeadTags.DefaultTag
+    return available[selectedIndex] or Config.Tags.DefaultTag
 end
 
-function HeadTagsModule.SetPlayerSelectedTag(source, index)
-    local available = HeadTagsModule.GetPlayerAvailableTags(source)
+function TagsModule.SetPlayerSelectedTag(source, index)
+    local available = TagsModule.GetPlayerAvailableTags(source)
     
     if index >= 1 and index <= #available then
         PlayerSelectedTag[source] = index
-        HeadTagsModule.BroadcastPlayerTag(source)
+        TagsModule.BroadcastPlayerTag(source)
         return true
     end
     
     return false
 end
 
-function HeadTagsModule.GetPlayerSettings(source)
-    if not PlayerHeadTagSettings[source] then
-        PlayerHeadTagSettings[source] = {
-            showOthers = Config.HeadTags.DefaultShowOthers ~= false,
-            showOwn = Config.HeadTags.DefaultShowOwn ~= false,
-            selectedIndex = nil,
+function TagsModule.GetPlayerSettings(source)
+    if not PlayerTagSettings[source] then
+        PlayerTagSettings[source] = {
+            showOthers = Config.Tags.DefaultShowOthers ~= false,
+            showOwn = Config.Tags.DefaultShowOwn ~= false,
         }
     end
-    return PlayerHeadTagSettings[source]
+    return PlayerTagSettings[source]
 end
 
-function HeadTagsModule.SetPlayerSettings(source, settings)
-    PlayerHeadTagSettings[source] = settings
+function TagsModule.SetPlayerSettings(source, settings)
+    PlayerTagSettings[source] = settings
 end
 
-function HeadTagsModule.RefreshPlayerHeadTag(source)
+function TagsModule.RefreshPlayerTag(source)
     PlayerAvailableTags[source] = nil
     PlayerSelectedTag[source] = nil
-    local tag = HeadTagsModule.GetPlayerHeadTag(source)
-    HeadTagsModule.BroadcastPlayerTag(source)
+    local tag = TagsModule.GetPlayerTag(source)
+    TagsModule.BroadcastPlayerTag(source)
     return tag
 end
 
-function HeadTagsModule.ClearPlayerHeadTag(source)
+function TagsModule.ClearPlayerTag(source)
     PlayerAvailableTags[source] = nil
     PlayerSelectedTag[source] = nil
-    PlayerHeadTagSettings[source] = nil
+    PlayerTagSettings[source] = nil
 end
 
-function HeadTagsModule.GetAllPlayerTags()
+function TagsModule.GetAllPlayerTags()
     local tags = {}
     local players = GetPlayers()
     
     for _, playerId in ipairs(players) do
-        local source = tonumber(playerId)
-        local tag = HeadTagsModule.GetPlayerHeadTag(source)
+        local src = tonumber(playerId)
+        local tag = TagsModule.GetPlayerTag(src)
         if tag then
-            tags[source] = {
+            tags[src] = {
                 tag = tag,
-                name = GetPlayerName(source) or 'Unknown',
+                name = GetPlayerName(src) or 'Unknown',
             }
         end
     end
@@ -2642,84 +2618,97 @@ function HeadTagsModule.GetAllPlayerTags()
     return tags
 end
 
-function HeadTagsModule.BroadcastPlayerTag(source)
-    local tag = HeadTagsModule.GetPlayerHeadTag(source)
+function TagsModule.BroadcastPlayerTag(source)
+    local tag = TagsModule.GetPlayerTag(source)
     local name = GetPlayerName(source) or 'Unknown'
     
-    TriggerClientEvent('LonexDiscord:HeadTags:UpdatePlayerTag', -1, source, {
+    TriggerClientEvent('LonexDiscord:Tags:UpdatePlayer', -1, source, {
         tag = tag,
         name = name,
     })
 end
 
-function HeadTagsModule.SyncAllTagsToPlayer(targetSource)
-    local allTags = HeadTagsModule.GetAllPlayerTags()
-    local settings = HeadTagsModule.GetPlayerSettings(targetSource)
-    local available = HeadTagsModule.GetPlayerAvailableTags(targetSource)
+function TagsModule.SyncAllTagsToPlayer(targetSource)
+    local allTags = TagsModule.GetAllPlayerTags()
+    local settings = TagsModule.GetPlayerSettings(targetSource)
+    local available = TagsModule.GetPlayerAvailableTags(targetSource)
     local selectedIndex = PlayerSelectedTag[targetSource] or #available
     
-    TriggerClientEvent('LonexDiscord:HeadTags:SyncAll', targetSource, allTags, settings, available, selectedIndex)
+    TriggerClientEvent('LonexDiscord:Tags:SyncAll', targetSource, allTags, settings, available, selectedIndex)
 end
 
--- Clear headtag cache on disconnect
+function TagsModule.GetChatPrefix(source)
+    local tag = TagsModule.GetPlayerTag(source)
+    if tag and tag.chatColor then
+        return tag.chatColor .. '[' .. tag.text .. '] '
+    end
+    return ''
+end
+
 AddEventHandler('playerDropped', function()
     local source = source
-    HeadTagsModule.ClearPlayerHeadTag(source)
-    TriggerClientEvent('LonexDiscord:HeadTags:PlayerLeft', -1, source)
+    TagsModule.ClearPlayerTag(source)
+    TriggerClientEvent('LonexDiscord:Tags:PlayerLeft', -1, source)
 end)
 
--- Sync tags when player joins
 AddEventHandler('playerJoining', function()
     local source = source
     
-    if not Config.HeadTags or not Config.HeadTags.Enabled then
+    if not Config.Tags or not Config.Tags.Enabled then
         return
     end
     
     SetTimeout(3000, function()
-        HeadTagsModule.BroadcastPlayerTag(source)
-        HeadTagsModule.SyncAllTagsToPlayer(source)
+        TagsModule.BroadcastPlayerTag(source)
+        TagsModule.SyncAllTagsToPlayer(source)
     end)
 end)
 
--- Register headtags command
-RegisterCommand(Config.HeadTags and Config.HeadTags.MenuCommand or 'headtags', function(source, args)
-    if source == 0 then return end
+AddEventHandler('chatMessage', function(source, name, message)
+    if not Config.Tags or not Config.Tags.Enabled then return end
+    if not Config.Tags.ChatTags or not Config.Tags.ChatTags.Enabled then return end
     
-    if not Config.HeadTags or not Config.HeadTags.Enabled then
-        return
+    local prefix = TagsModule.GetChatPrefix(source)
+    
+    if prefix and prefix ~= '' then
+        CancelEvent()
+        TriggerClientEvent('chat:addMessage', -1, {
+            args = { prefix .. name, message },
+            color = { 255, 255, 255 }
+        })
     end
+end)
+
+RegisterCommand(Config.Tags and Config.Tags.MenuCommand or 'tags', function(source, args)
+    if source == 0 then return end
+    if not Config.Tags or not Config.Tags.Enabled then return end
     
-    local available = HeadTagsModule.GetPlayerAvailableTags(source)
+    local available = TagsModule.GetPlayerAvailableTags(source)
     local selectedIndex = PlayerSelectedTag[source] or #available
-    local settings = HeadTagsModule.GetPlayerSettings(source)
+    local settings = TagsModule.GetPlayerSettings(source)
     
-    TriggerClientEvent('LonexDiscord:HeadTags:OpenMenu', source, available, selectedIndex, settings)
+    TriggerClientEvent('LonexDiscord:Tags:OpenMenu', source, available, selectedIndex, settings)
 end, false)
 
--- Client requests
-RegisterNetEvent('LonexDiscord:HeadTags:RequestSync')
-AddEventHandler('LonexDiscord:HeadTags:RequestSync', function()
+RegisterNetEvent('LonexDiscord:Tags:RequestSync')
+AddEventHandler('LonexDiscord:Tags:RequestSync', function()
     local source = source
-    HeadTagsModule.SyncAllTagsToPlayer(source)
+    TagsModule.SyncAllTagsToPlayer(source)
 end)
 
-RegisterNetEvent('LonexDiscord:HeadTags:SelectTag')
-AddEventHandler('LonexDiscord:HeadTags:SelectTag', function(index)
+RegisterNetEvent('LonexDiscord:Tags:SelectTag')
+AddEventHandler('LonexDiscord:Tags:SelectTag', function(index)
     local source = source
-    
     if type(index) ~= 'number' then return end
-    
-    HeadTagsModule.SetPlayerSelectedTag(source, index)
+    TagsModule.SetPlayerSelectedTag(source, index)
 end)
 
-RegisterNetEvent('LonexDiscord:HeadTags:UpdateMySettings')
-AddEventHandler('LonexDiscord:HeadTags:UpdateMySettings', function(settings)
+RegisterNetEvent('LonexDiscord:Tags:UpdateSettings')
+AddEventHandler('LonexDiscord:Tags:UpdateSettings', function(settings)
     local source = source
-    
     if type(settings) ~= 'table' then return end
     
-    local currentSettings = HeadTagsModule.GetPlayerSettings(source)
+    local currentSettings = TagsModule.GetPlayerSettings(source)
     
     if settings.showOthers ~= nil then
         currentSettings.showOthers = settings.showOthers == true
@@ -2728,35 +2717,789 @@ AddEventHandler('LonexDiscord:HeadTags:UpdateMySettings', function(settings)
         currentSettings.showOwn = settings.showOwn == true
     end
     
-    HeadTagsModule.SetPlayerSettings(source, currentSettings)
+    TagsModule.SetPlayerSettings(source, currentSettings)
 end)
 
-exports('GetPlayerHeadTag', function(source)
-    return HeadTagsModule.GetPlayerHeadTag(source)
+exports('GetPlayerTag', function(source)
+    return TagsModule.GetPlayerTag(source)
 end)
 
 exports('GetPlayerAvailableTags', function(source)
-    return HeadTagsModule.GetPlayerAvailableTags(source)
+    return TagsModule.GetPlayerAvailableTags(source)
 end)
 
-exports('GetPlayerHeadTagSettings', function(source)
-    return HeadTagsModule.GetPlayerSettings(source)
+exports('GetPlayerTagSettings', function(source)
+    return TagsModule.GetPlayerSettings(source)
 end)
 
-exports('SetPlayerHeadTagSettings', function(source, settings)
-    HeadTagsModule.SetPlayerSettings(source, settings)
+exports('SetPlayerTagSettings', function(source, settings)
+    TagsModule.SetPlayerSettings(source, settings)
 end)
 
 exports('SetPlayerSelectedTag', function(source, index)
-    return HeadTagsModule.SetPlayerSelectedTag(source, index)
+    return TagsModule.SetPlayerSelectedTag(source, index)
 end)
 
-exports('RefreshPlayerHeadTag', function(source)
-    return HeadTagsModule.RefreshPlayerHeadTag(source)
+exports('RefreshPlayerTag', function(source)
+    return TagsModule.RefreshPlayerTag(source)
 end)
 
-exports('GetAllHeadTags', function()
-    return HeadTagsModule.GetAllPlayerTags()
+exports('GetAllTags', function()
+    return TagsModule.GetAllPlayerTags()
 end)
 
-LonexDiscord.HeadTags = HeadTagsModule
+exports('GetChatPrefix', function(source)
+    return TagsModule.GetChatPrefix(source)
+end)
+
+LonexDiscord.Tags = TagsModule
+
+-- ============================================================================
+-- EMERGENCY CALLS MODULE (911/311 System)
+-- ============================================================================
+
+local EmergencyModule = {}
+
+-- Active calls storage: [callId] = { type, source, coords, street, message, time }
+local ActiveCalls = {}
+local CallIdCounter = 0
+local PlayerCooldowns = {} -- [source] = { [type] = timestamp }
+local PlayerDutyStatus = {} -- [source] = boolean
+
+-- Call expiry time (seconds) - calls older than this can't be responded to
+local CALL_EXPIRY = 600 -- 10 minutes
+
+---Generate a new call ID
+local function GenerateCallId()
+    CallIdCounter = CallIdCounter + 1
+    return CallIdCounter
+end
+
+---Check if player is on duty
+local function IsOnDuty(source)
+    local dutyConfig = Config.EmergencyCalls.Duty
+    
+    -- If duty system is disabled, everyone is considered on duty
+    if not dutyConfig or not dutyConfig.Enabled then
+        return true
+    end
+    
+    -- Check player's duty status
+    if PlayerDutyStatus[source] == nil then
+        -- Default status
+        return dutyConfig.DefaultOnDuty == true
+    end
+    
+    return PlayerDutyStatus[source] == true
+end
+
+---Set player duty status
+local function SetDutyStatus(source, onDuty)
+    PlayerDutyStatus[source] = onDuty
+end
+
+---Toggle player duty status
+local function ToggleDuty(source)
+    local currentStatus = IsOnDuty(source)
+    
+    -- If duty system disabled, they're always on duty
+    if not Config.EmergencyCalls.Duty or not Config.EmergencyCalls.Duty.Enabled then
+        return true, 'Duty system is not enabled.'
+    end
+    
+    local newStatus = not currentStatus
+    SetDutyStatus(source, newStatus)
+    
+    local messages = Config.EmergencyCalls.Duty.Messages
+    if newStatus then
+        return true, messages.OnDuty
+    else
+        return false, messages.OffDuty
+    end
+end
+
+---Check if player has any of the responder roles for a call type
+local function HasResponderRole(source, callType)
+    local typeConfig = Config.EmergencyCalls.Types[callType]
+    if not typeConfig or not typeConfig.ResponderRoles then
+        return false
+    end
+    
+    -- If no roles configured, everyone can respond
+    if #typeConfig.ResponderRoles == 0 then
+        return true
+    end
+    
+    local playerRoles = exports.LonexDiscordAPI:GetDiscordRoleIds(source)
+    if not playerRoles then return false end
+    
+    -- Check if player has any responder role
+    for _, responderRoleId in ipairs(typeConfig.ResponderRoles) do
+        for _, playerRoleId in ipairs(playerRoles) do
+            if tostring(playerRoleId) == tostring(responderRoleId) then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+---Check if player can receive/respond to calls (has role AND on duty)
+local function IsResponder(source, callType)
+    -- Must have responder role
+    if not HasResponderRole(source, callType) then
+        return false
+    end
+    
+    -- Must be on duty (if duty system enabled)
+    if not IsOnDuty(source) then
+        return false
+    end
+    
+    return true
+end
+
+---Check if player is on cooldown for a call type
+local function IsOnCooldown(source, callType)
+    if not PlayerCooldowns[source] then return false end
+    if not PlayerCooldowns[source][callType] then return false end
+    
+    local cooldownTime = Config.EmergencyCalls.Cooldown or 60
+    local elapsed = os.time() - PlayerCooldowns[source][callType]
+    
+    return elapsed < cooldownTime
+end
+
+---Set cooldown for player
+local function SetCooldown(source, callType)
+    if not PlayerCooldowns[source] then
+        PlayerCooldowns[source] = {}
+    end
+    PlayerCooldowns[source][callType] = os.time()
+end
+
+---Clean up expired calls
+local function CleanupExpiredCalls()
+    local now = os.time()
+    for callId, call in pairs(ActiveCalls) do
+        if now - call.time > CALL_EXPIRY then
+            ActiveCalls[callId] = nil
+        end
+    end
+end
+
+---Send call to Discord channel
+local function SendToDiscord(callType, callId, playerName, message, street, coords)
+    local typeConfig = Config.EmergencyCalls.Types[callType]
+    if not typeConfig or not typeConfig.ChannelId or typeConfig.ChannelId == '' then
+        if Config.Debug then
+            print('^3[LonexDiscord] Emergency call channel not configured for: ' .. callType .. '^0')
+        end
+        return
+    end
+    
+    local embed = {
+        title = typeConfig.Label .. ' - Call #' .. callId,
+        color = typeConfig.Color or 0xFF0000,
+        fields = {
+            { name = 'Caller', value = playerName, inline = true },
+            { name = 'Call ID', value = '#' .. callId, inline = true },
+            { name = 'Location', value = street or 'Unknown', inline = false },
+            { name = 'Details', value = message or 'No details provided', inline = false },
+        },
+        footer = {
+            text = 'Use /resp ' .. callId .. ' in-game to respond',
+        },
+        timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ'),
+    }
+    
+    if coords then
+        table.insert(embed.fields, 3, {
+            name = 'Coordinates',
+            value = string.format('X: %.2f, Y: %.2f, Z: %.2f', coords.x, coords.y, coords.z),
+            inline = false,
+        })
+    end
+    
+    -- Send via Discord API
+    local channelId = typeConfig.ChannelId
+    local response = LonexDiscord.Http.Post('/channels/' .. channelId .. '/messages', {
+        embeds = { embed }
+    })
+    
+    if not response.success and Config.Debug then
+        print('^1[LonexDiscord] Failed to send emergency call to Discord: ' .. (response.error or 'Unknown error') .. '^0')
+    end
+end
+
+---Notify all responders in-game
+local function NotifyResponders(callType, callId, callerName, message, street)
+    local typeConfig = Config.EmergencyCalls.Types[callType]
+    if not typeConfig then return end
+    
+    local prefix = typeConfig.Prefix or ('^1[' .. callType .. ']^0')
+    local notification = string.format(
+        '%s ^3Call #%d^0 from ^5%s^0 at ^3%s^0: ^7%s',
+        prefix, callId, callerName, street or 'Unknown', message
+    )
+    
+    -- Send to all players who are responders
+    for _, playerId in ipairs(GetPlayers()) do
+        local src = tonumber(playerId)
+        if IsResponder(src, callType) then
+            TriggerClientEvent('chat:addMessage', src, {
+                args = { notification },
+                color = { 255, 255, 255 },
+            })
+            TriggerClientEvent('LonexDiscord:EmergencyCall:Notify', src, callType, callId)
+        end
+    end
+end
+
+---Create an emergency call
+function EmergencyModule.CreateCall(source, callType, message, coords, street)
+    local typeConfig = Config.EmergencyCalls.Types[callType]
+    if not typeConfig or not typeConfig.Enabled then
+        return nil, 'Call type not enabled'
+    end
+    
+    -- Check cooldown
+    if IsOnCooldown(source, callType) then
+        return nil, typeConfig.Messages.Cooldown
+    end
+    
+    -- Generate call ID
+    local callId = GenerateCallId()
+    local playerName = GetPlayerName(source) or 'Unknown'
+    
+    -- Store the call
+    ActiveCalls[callId] = {
+        id = callId,
+        type = callType,
+        source = source,
+        playerName = playerName,
+        message = message,
+        coords = coords,
+        street = street,
+        time = os.time(),
+    }
+    
+    -- Set cooldown
+    SetCooldown(source, callType)
+    
+    -- Send to Discord
+    SendToDiscord(callType, callId, playerName, message, street, coords)
+    
+    -- Notify responders in-game
+    NotifyResponders(callType, callId, playerName, message, street)
+    
+    -- Cleanup old calls periodically
+    CleanupExpiredCalls()
+    
+    return callId, typeConfig.Messages.Sent
+end
+
+---Respond to a call (get location)
+function EmergencyModule.RespondToCall(source, callId)
+    local call = ActiveCalls[tonumber(callId)]
+    if not call then
+        return nil, Config.EmergencyCalls.Response.Messages.InvalidCall
+    end
+    
+    -- Check if responder has the role
+    if not HasResponderRole(source, call.type) then
+        return nil, Config.EmergencyCalls.Response.Messages.NoPermission
+    end
+    
+    -- Check if responder is on duty
+    if not IsOnDuty(source) then
+        local dutyConfig = Config.EmergencyCalls.Duty
+        if dutyConfig and dutyConfig.Messages and dutyConfig.Messages.MustBeOnDuty then
+            return nil, dutyConfig.Messages.MustBeOnDuty
+        end
+        return nil, Config.EmergencyCalls.Response.Messages.NoPermission
+    end
+    
+    -- Return call data for waypoint
+    return call, string.format(Config.EmergencyCalls.Response.Messages.Responding, callId)
+end
+
+---Get active calls for a responder
+function EmergencyModule.GetActiveCalls(source)
+    local calls = {}
+    CleanupExpiredCalls()
+    
+    for callId, call in pairs(ActiveCalls) do
+        -- Check if player can see this call type
+        if IsResponder(source, call.type) then
+            table.insert(calls, {
+                id = call.id,
+                type = call.type,
+                playerName = call.playerName,
+                street = call.street,
+                message = call.message,
+                time = call.time,
+            })
+        end
+    end
+    
+    -- Sort by time (newest first)
+    table.sort(calls, function(a, b) return a.time > b.time end)
+    
+    return calls
+end
+
+-- Register commands for each call type
+CreateThread(function()
+    Wait(1000)
+    
+    if not Config.EmergencyCalls or not Config.EmergencyCalls.Enabled then
+        return
+    end
+    
+    -- Register call commands (911, 311, etc.)
+    for callType, typeConfig in pairs(Config.EmergencyCalls.Types) do
+        if typeConfig.Enabled and typeConfig.Command then
+            RegisterCommand(typeConfig.Command, function(source, args)
+                if source == 0 then return end
+                
+                local message = table.concat(args, ' ')
+                if message == '' then
+                    TriggerClientEvent('chat:addMessage', source, {
+                        args = { typeConfig.Messages.NoMessage },
+                    })
+                    return
+                end
+                
+                -- Request location from client
+                TriggerClientEvent('LonexDiscord:EmergencyCall:GetLocation', source, callType, message)
+            end, false)
+            
+            if Config.Debug then
+                print('[LonexDiscord] Registered emergency command: /' .. typeConfig.Command)
+            end
+        end
+    end
+    
+    -- Register response command
+    local respConfig = Config.EmergencyCalls.Response
+    if respConfig and respConfig.Command then
+        RegisterCommand(respConfig.Command, function(source, args)
+            if source == 0 then return end
+            
+            local callId = args[1]
+            if not callId then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { '^1Usage: /' .. respConfig.Command .. ' <call_id>' },
+                })
+                return
+            end
+            
+            local call, msg = EmergencyModule.RespondToCall(source, callId)
+            
+            TriggerClientEvent('chat:addMessage', source, {
+                args = { msg },
+            })
+            
+            if call and call.coords then
+                TriggerClientEvent('LonexDiscord:EmergencyCall:SetWaypoint', source, call.coords)
+            end
+        end, false)
+        
+        if Config.Debug then
+            print('[LonexDiscord] Registered response command: /' .. respConfig.Command)
+        end
+    end
+    
+    -- Register duty command
+    local dutyConfig = Config.EmergencyCalls.Duty
+    if dutyConfig and dutyConfig.Enabled and dutyConfig.Command then
+        RegisterCommand(dutyConfig.Command, function(source, args)
+            if source == 0 then return end
+            
+            -- Check if player has any responder role for any call type
+            local hasAnyRole = false
+            for callType, _ in pairs(Config.EmergencyCalls.Types) do
+                if HasResponderRole(source, callType) then
+                    hasAnyRole = true
+                    break
+                end
+            end
+            
+            if not hasAnyRole then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { '^1You do not have permission to use the duty system.' },
+                })
+                return
+            end
+            
+            local newStatus, msg = ToggleDuty(source)
+            
+            TriggerClientEvent('chat:addMessage', source, {
+                args = { msg },
+            })
+            
+            -- Notify client of duty status change
+            TriggerClientEvent('LonexDiscord:EmergencyCall:DutyChanged', source, newStatus)
+        end, false)
+        
+        if Config.Debug then
+            print('[LonexDiscord] Registered duty command: /' .. dutyConfig.Command)
+        end
+    end
+    
+    print('^2[LonexDiscord] ^0Emergency Calls system loaded')
+end)
+
+-- Event: Receive location from client and create call
+RegisterNetEvent('LonexDiscord:EmergencyCall:Submit')
+AddEventHandler('LonexDiscord:EmergencyCall:Submit', function(callType, message, coords, street)
+    local source = source
+    
+    local callId, msg = EmergencyModule.CreateCall(source, callType, message, coords, street)
+    
+    TriggerClientEvent('chat:addMessage', source, {
+        args = { msg },
+    })
+end)
+
+-- Cleanup on player disconnect
+AddEventHandler('playerDropped', function()
+    local source = source
+    PlayerCooldowns[source] = nil
+    PlayerDutyStatus[source] = nil
+end)
+
+-- Exports
+exports('CreateEmergencyCall', function(source, callType, message, coords, street)
+    return EmergencyModule.CreateCall(source, callType, message, coords, street)
+end)
+
+exports('GetActiveCalls', function(source)
+    return EmergencyModule.GetActiveCalls(source)
+end)
+
+exports('RespondToCall', function(source, callId)
+    return EmergencyModule.RespondToCall(source, callId)
+end)
+
+exports('IsEmergencyResponder', function(source, callType)
+    return IsResponder(source, callType)
+end)
+
+exports('HasEmergencyResponderRole', function(source, callType)
+    return HasResponderRole(source, callType)
+end)
+
+exports('IsOnDuty', function(source)
+    return IsOnDuty(source)
+end)
+
+exports('SetDutyStatus', function(source, onDuty)
+    SetDutyStatus(source, onDuty)
+end)
+
+exports('ToggleDuty', function(source)
+    return ToggleDuty(source)
+end)
+
+LonexDiscord.EmergencyCalls = EmergencyModule
+
+-- ============================================================================
+-- SERVER UTILITIES MODULE (AOP, PeaceTime, Announcements, Postals)
+-- ============================================================================
+
+local ServerUtilsModule = {}
+
+-- State
+local CurrentAOP = nil
+local PeaceTimeEnabled = nil
+
+---Check if player has any of the allowed roles
+local function HasUtilityPermission(source, allowedRoles)
+    -- If no roles configured, everyone has permission
+    if not allowedRoles or #allowedRoles == 0 then
+        return true
+    end
+    
+    local playerRoles = exports.LonexDiscordAPI:GetDiscordRoleIds(source)
+    if not playerRoles then return false end
+    
+    for _, allowedRoleId in ipairs(allowedRoles) do
+        for _, playerRoleId in ipairs(playerRoles) do
+            if tostring(playerRoleId) == tostring(allowedRoleId) then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+---Get current AOP
+function ServerUtilsModule.GetAOP()
+    return CurrentAOP
+end
+
+---Set AOP
+function ServerUtilsModule.SetAOP(newAOP, sourceId)
+    local oldAOP = CurrentAOP
+    CurrentAOP = newAOP
+    
+    -- Notify all clients
+    TriggerClientEvent('LonexDiscord:AOP:Changed', -1, newAOP)
+    
+    -- Trigger event for integrations
+    TriggerEvent('LonexDiscord:AOPChange', oldAOP, newAOP, sourceId)
+    
+    return true
+end
+
+---Get PeaceTime status
+function ServerUtilsModule.GetPeaceTime()
+    return PeaceTimeEnabled
+end
+
+---Set PeaceTime status
+function ServerUtilsModule.SetPeaceTime(enabled, sourceId)
+    PeaceTimeEnabled = enabled
+    
+    -- Notify all clients
+    TriggerClientEvent('LonexDiscord:PeaceTime:Changed', -1, enabled)
+    
+    -- Trigger event for integrations
+    TriggerEvent('LonexDiscord:PeaceTimeChange', enabled, sourceId)
+    
+    return true
+end
+
+---Send announcement to all players
+function ServerUtilsModule.Announce(message, sourceId)
+    local config = Config.Announcements
+    
+    TriggerClientEvent('LonexDiscord:Announcement:Show', -1, {
+        message = message,
+        header = config and config.Header or '~b~[~p~Announcement~b~]',
+        duration = config and config.Duration or 10,
+        position = config and config.Position or 0.3,
+    })
+    
+    -- Trigger event for integrations
+    TriggerEvent('LonexDiscord:Announcement', message, sourceId)
+    
+    return true
+end
+
+-- Initialize and register commands
+CreateThread(function()
+    Wait(1000)
+    
+    local anyEnabled = false
+    
+    -- Initialize AOP
+    if Config.AOP and Config.AOP.Enabled then
+        anyEnabled = true
+        CurrentAOP = Config.AOP.Default or 'All of San Andreas'
+        
+        RegisterCommand(Config.AOP.Command or 'aop', function(source, args)
+            if source == 0 then
+                local newAOP = table.concat(args, ' ')
+                if newAOP == '' then
+                    print('[LonexDiscord] Current AOP: ' .. (CurrentAOP or 'Not set'))
+                    return
+                end
+                ServerUtilsModule.SetAOP(newAOP, 0)
+                print('[LonexDiscord] AOP changed to: ' .. newAOP)
+                return
+            end
+            
+            if not HasUtilityPermission(source, Config.AOP.AllowedRoles) then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.AOP.Messages.NoPermission },
+                })
+                return
+            end
+            
+            local newAOP = table.concat(args, ' ')
+            if newAOP == '' then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.AOP.Messages.Usage },
+                })
+                return
+            end
+            
+            ServerUtilsModule.SetAOP(newAOP, source)
+            
+            local msg = string.format(Config.AOP.Messages.Changed, newAOP)
+            TriggerClientEvent('chat:addMessage', -1, {
+                args = { msg },
+            })
+        end, false)
+        
+        if Config.Debug then
+            print('[LonexDiscord] Registered AOP command: /' .. (Config.AOP.Command or 'aop'))
+        end
+    end
+    
+    -- Initialize PeaceTime
+    if Config.PeaceTime and Config.PeaceTime.Enabled then
+        anyEnabled = true
+        PeaceTimeEnabled = Config.PeaceTime.Default or false
+        
+        for _, cmd in ipairs(Config.PeaceTime.Commands or { 'peacetime', 'pt' }) do
+            RegisterCommand(cmd, function(source)
+                if source == 0 then
+                    PeaceTimeEnabled = not PeaceTimeEnabled
+                    ServerUtilsModule.SetPeaceTime(PeaceTimeEnabled, 0)
+                    print('[LonexDiscord] PeaceTime: ' .. (PeaceTimeEnabled and 'ENABLED' or 'DISABLED'))
+                    return
+                end
+                
+                if not HasUtilityPermission(source, Config.PeaceTime.AllowedRoles) then
+                    TriggerClientEvent('chat:addMessage', source, {
+                        args = { Config.PeaceTime.Messages.NoPermission },
+                    })
+                    return
+                end
+                
+                PeaceTimeEnabled = not PeaceTimeEnabled
+                ServerUtilsModule.SetPeaceTime(PeaceTimeEnabled, source)
+                
+                local msg = PeaceTimeEnabled and Config.PeaceTime.Messages.Enabled or Config.PeaceTime.Messages.Disabled
+                TriggerClientEvent('chat:addMessage', -1, {
+                    args = { msg },
+                })
+            end, false)
+        end
+        
+        if Config.Debug then
+            print('[LonexDiscord] Registered PeaceTime commands: /' .. table.concat(Config.PeaceTime.Commands or { 'peacetime', 'pt' }, ', /'))
+        end
+    end
+    
+    -- Initialize Announcements
+    if Config.Announcements and Config.Announcements.Enabled then
+        anyEnabled = true
+        
+        RegisterCommand(Config.Announcements.Command or 'announce', function(source, args)
+            if source == 0 then
+                local message = table.concat(args, ' ')
+                if message == '' then
+                    print('[LonexDiscord] Usage: announce <message>')
+                    return
+                end
+                ServerUtilsModule.Announce(message, 0)
+                print('[LonexDiscord] Announcement sent: ' .. message)
+                return
+            end
+            
+            if not HasUtilityPermission(source, Config.Announcements.AllowedRoles) then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.Announcements.Messages.NoPermission },
+                })
+                return
+            end
+            
+            local message = table.concat(args, ' ')
+            if message == '' then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.Announcements.Messages.Usage },
+                })
+                return
+            end
+            
+            ServerUtilsModule.Announce(message, source)
+            
+            TriggerClientEvent('chat:addMessage', source, {
+                args = { Config.Announcements.Messages.Sent },
+            })
+        end, false)
+        
+        if Config.Debug then
+            print('[LonexDiscord] Registered announcement command: /' .. (Config.Announcements.Command or 'announce'))
+        end
+    end
+    
+    -- Initialize Postals
+    if Config.Postals and Config.Postals.Enabled then
+        anyEnabled = true
+        
+        RegisterCommand(Config.Postals.Command or 'postal', function(source, args)
+            if source == 0 then return end
+            
+            local code = args[1]
+            
+            if not code or code == '' then
+                TriggerClientEvent('LonexDiscord:Postal:Cancel', source)
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.Postals.Messages.Cancelled },
+                })
+                return
+            end
+            
+            local found = nil
+            if Postals then
+                for _, postal in ipairs(Postals) do
+                    if tostring(postal.code) == tostring(code) then
+                        found = postal
+                        break
+                    end
+                end
+            end
+            
+            if found then
+                TriggerClientEvent('LonexDiscord:Postal:Set', source, found)
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { string.format(Config.Postals.Messages.Set, code) },
+                })
+            else
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { string.format(Config.Postals.Messages.NotFound, code) },
+                })
+            end
+        end, false)
+        
+        if Config.Debug then
+            print('[LonexDiscord] Registered postal command: /' .. (Config.Postals.Command or 'postal'))
+        end
+    end
+    
+    if anyEnabled then
+        print('^2[LonexDiscord] ^0Server utilities loaded (AOP/PeaceTime/Announcements/Postals)')
+    end
+end)
+
+-- Sync state to joining players
+RegisterNetEvent('LonexDiscord:Utils:RequestState')
+AddEventHandler('LonexDiscord:Utils:RequestState', function()
+    local source = source
+    
+    TriggerClientEvent('LonexDiscord:Utils:SyncState', source, {
+        aop = CurrentAOP,
+        peacetime = PeaceTimeEnabled,
+    })
+end)
+
+-- Exports
+exports('GetAOP', function()
+    return ServerUtilsModule.GetAOP()
+end)
+
+exports('SetAOP', function(newAOP, sourceId)
+    return ServerUtilsModule.SetAOP(newAOP, sourceId or 0)
+end)
+
+exports('GetPeaceTime', function()
+    return ServerUtilsModule.GetPeaceTime()
+end)
+
+exports('SetPeaceTime', function(enabled, sourceId)
+    return ServerUtilsModule.SetPeaceTime(enabled, sourceId or 0)
+end)
+
+exports('Announce', function(message, sourceId)
+    return ServerUtilsModule.Announce(message, sourceId or 0)
+end)
+
+LonexDiscord.ServerUtils = ServerUtilsModule
