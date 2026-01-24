@@ -31,7 +31,9 @@ It provides seamless Discord role syncing, permissions, webhooks, player data ac
 
 ### 🔐 Permission System
 - **Automatic Role Sync**  
-  Sync Discord roles to FiveM ACE permissions on player join
+  Sync Discord roles to FiveM ACE permissions during player connection
+- **vMenu & ACE Compatible**  
+  Uses `identifier.discord:ID` format for full ACE inheritance support
 - **Role Inheritance**  
   Example:
   - VIP → inherits Member permissions  
@@ -80,6 +82,18 @@ It provides seamless Discord role syncing, permissions, webhooks, player data ac
   Navigate to postal codes with `/postal`
 - **Server HUD**  
   Configurable HUD with compass, street, zone, postal, AOP, and player info
+
+---
+
+### 🛡️ Moderation Tools
+- **Delete Vehicle**  
+  Remove vehicles you're in or nearby with `/dv`
+- **Delete All Vehicles**  
+  Clear all unoccupied vehicles server-wide with countdown warning
+- **Clear Chat**  
+  Wipe server chat for all players
+- **Role-Based Access**  
+  All moderation commands can be restricted to specific Discord roles
 
 ---
 
@@ -150,6 +164,7 @@ The documentation includes:
 
 ## 📋 Commands
 
+### Player Commands
 | Command | Description |
 |---------|-------------|
 | `/aop <zone>` | Set the Area of Play |
@@ -162,6 +177,20 @@ The documentation includes:
 | `/311 <message>` | Send non-emergency call |
 | `/resp <id>` | Respond to a call |
 | `/duty` | Toggle duty status |
+
+### Moderation Commands
+| Command | Description |
+|---------|-------------|
+| `/dv` | Delete vehicle you're in or nearby |
+| `/dvall` | Delete all unoccupied vehicles (20s countdown) |
+| `/clearchat` | Clear server chat for all players |
+
+### Console Commands
+| Command | Description |
+|---------|-------------|
+| `lonex_roles` | List all configured role mappings |
+| `lonex_syncall` | Manually sync all connected players |
+| `lonex_debug_player <id>` | Full diagnostic for player permissions |
 
 ---
 
