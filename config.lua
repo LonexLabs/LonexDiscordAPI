@@ -3,17 +3,22 @@
     https://github.com/LonexLabs/LonexDiscordAPI
     
     server.cfg:
+        exec @LonexDiscordAPI/lonexperms.cfg
         set lonex_discord_token "YOUR_BOT_TOKEN"
         set lonex_discord_guild "YOUR_GUILD_ID"
         ensure LonexDiscordAPI
 ]]
+
+-- ============================================================================
+-- GENERAL SETTINGS (most users won't need to change these)
+-- ============================================================================
 
 Config = {}
 
 Config.Debug = false
 Config.LogLevel = 'info'
 Config.LogCacheRefresh = false
-Config.CheckUpdates = true -- Check GitHub for new releases on startup
+Config.CheckUpdates = true
 
 Config.ForceDefaultPed = {
     Enabled = false,
@@ -44,15 +49,21 @@ Config.Startup = {
     ValidateToken = true
 }
 
+-- ============================================================================
+-- PERMISSIONS
+-- ============================================================================
+
 Config.Permissions = {
-    Enabled = true,
-    RefreshOnFetch = true,
-    LogAssignments = true,
-    DefaultPermissions = {},
-    DefaultGroups = {},
-    Roles = {
-        -- ['ROLE_ID'] = { permissions = { 'perm.node' }, groups = { 'groupname' }, priority = 1 },
-    },
+    Enabled = true,         -- Enable/disable the permission system
+    RefreshOnFetch = true,  -- Refresh permissions when Discord data updates
+    LogAssignments = false, -- Log permission assignments to console
+}
+
+Roles = {
+    -- ['1234567890123456789'] = 'admin',
+    -- ['2345678901234567890'] = 'moderator', 
+    -- ['3456789012345678901'] = 'vip',
+    -- ['4567890123456789012'] = { 'staff', 'support' },
 }
 
 Config.Webhooks = {
@@ -438,5 +449,78 @@ Config.ServerHUD = {
             scale = 0.4,
             enabled = true,
         },
+    },
+}
+
+-- ============================================================================
+-- VEHICLE MANAGEMENT
+-- ============================================================================
+
+Config.DeleteVehicle = {
+    Enabled = true,
+    Command = 'dv',                -- /dv to delete current/nearby vehicle
+    
+    -- Discord roles that can use /dv (empty = everyone)
+    AllowedRoles = {
+        -- 'ROLE_ID_1',
+        -- 'ROLE_ID_2',
+    },
+    
+    -- Search radius for nearby vehicle (if not in one)
+    SearchRadius = 5.0,
+    
+    Messages = {
+        Deleted = '^2Vehicle deleted.',
+        NotFound = '^1No vehicle found nearby.',
+        NoPermission = '^1You do not have permission to delete vehicles.',
+    },
+}
+
+Config.DeleteAllVehicles = {
+    Enabled = true,
+    Command = 'dvall',             -- /dvall to delete all unoccupied vehicles
+    
+    -- Discord roles that can use /dvall (empty = everyone)
+    AllowedRoles = {
+        -- 'ROLE_ID_1',
+    },
+    
+    -- Countdown before deletion (seconds)
+    Countdown = 20,
+    
+    -- Only delete vehicles with no occupants
+    OnlyUnoccupied = true,
+    
+    Messages = {
+        Starting = '^3[SERVER] ^1All unoccupied vehicles will be deleted in %d seconds!',
+        Countdown = '^3[SERVER] ^1Vehicles being deleted in %d seconds...',
+        Deleted = '^3[SERVER] ^2%d unoccupied vehicles have been deleted.',
+        NoPermission = '^1You do not have permission to delete all vehicles.',
+        AlreadyRunning = '^1A vehicle deletion is already in progress.',
+    },
+}
+
+-- ============================================================================
+-- CLEAR CHAT
+-- ============================================================================
+
+Config.ClearChat = {
+    Enabled = true,
+    Command = 'clearchat',         -- /clearchat to clear server chat
+    
+    -- Discord roles that can clear chat (empty = everyone)
+    AllowedRoles = {
+        -- 'ROLE_ID_1',
+    },
+    
+    -- Number of blank lines to send (effectively clears chat)
+    BlankLines = 100,
+    
+    -- Show who cleared the chat
+    ShowClearedBy = true,
+    
+    Messages = {
+        Cleared = '^3[SERVER] ^2Chat has been cleared by ^3%s^2.',
+        NoPermission = '^1You do not have permission to clear chat.',
     },
 }

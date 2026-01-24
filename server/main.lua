@@ -89,6 +89,67 @@ end
 
 -- STARTUP VALIDATION
 
+local ACE_PERMISSION_GRANTED = false
+local ACE_WARNING_SHOWN = false
+local RESOURCE_NAME = GetCurrentResourceName()
+
+-- Test if we have permission to assign ACE permissions
+local function TestAcePermissions()
+    -- Create a test principal that we'll immediately remove
+    local testIdentifier = 'lonex.test.' .. math.random(100000, 999999)
+    local testGroup = 'lonex_permission_test'
+    
+    -- Try to add a test principal
+    local success = true
+    
+    -- Register a one-time handler to catch the error
+    local errorOccurred = false
+    
+    -- Use pcall to catch any errors
+    local ok, err = pcall(function()
+        ExecuteCommand(string.format('add_principal identifier.%s group.%s', testIdentifier, testGroup))
+    end)
+    
+    if not ok then
+        success = false
+    end
+    
+    -- Clean up test
+    pcall(function()
+        ExecuteCommand(string.format('remove_principal identifier.%s group.%s', testIdentifier, testGroup))
+    end)
+    
+    return success
+end
+
+-- Print ACE setup instructions
+local function PrintAceSetupInstructions()
+    print('')
+    print('^1╔══════════════════════════════════════════════════════════════════════════════╗^0')
+    print('^1║                    LONEXDISCORDAPI - PERMISSION ERROR                        ║^0')
+    print('^1╠══════════════════════════════════════════════════════════════════════════════╣^0')
+    print('^1║^0 The resource cannot assign ACE permissions to players.                       ^1║^0')
+    print('^1║^0 This means Discord role permissions will NOT work.                           ^1║^0')
+    print('^1╠══════════════════════════════════════════════════════════════════════════════╣^0')
+    print('^1║^0 ^3Add this line to your server.cfg BEFORE ensure ' .. RESOURCE_NAME .. ':^0' .. string.rep(' ', 21 - #RESOURCE_NAME) .. '^1║^0')
+    print('^1╠══════════════════════════════════════════════════════════════════════════════╣^0')
+    print('^1║^0                                                                              ^1║^0')
+    print('^1║^0  ^2exec @' .. RESOURCE_NAME .. '/lonexperms.cfg^0' .. string.rep(' ', 42 - #RESOURCE_NAME) .. '^1║^0')
+    print('^1║^0                                                                              ^1║^0')
+    print('^1╠══════════════════════════════════════════════════════════════════════════════╣^0')
+    print('^1║^0 ^3Example server.cfg:^0                                                         ^1║^0')
+    print('^1║^0                                                                              ^1║^0')
+    print('^1║^0  ^2exec @' .. RESOURCE_NAME .. '/lonexperms.cfg^0' .. string.rep(' ', 42 - #RESOURCE_NAME) .. '^1║^0')
+    print('^1║^0  ^2set lonex_discord_token "YOUR_BOT_TOKEN"^0                                   ^1║^0')
+    print('^1║^0  ^2set lonex_discord_guild "YOUR_GUILD_ID"^0                                    ^1║^0')
+    print('^1║^0  ^2ensure ' .. RESOURCE_NAME .. '^0' .. string.rep(' ', 51 - #RESOURCE_NAME) .. '^1║^0')
+    print('^1║^0                                                                              ^1║^0')
+    print('^1╠══════════════════════════════════════════════════════════════════════════════╣^0')
+    print('^1║^0 ^3After adding, do a FULL server restart (stop + start, not just restart)^0    ^1║^0')
+    print('^1╚══════════════════════════════════════════════════════════════════════════════╝^0')
+    print('')
+end
+
 CreateThread(function()
     Wait(0)
     
@@ -102,8 +163,50 @@ CreateThread(function()
         print('^3[LonexDiscord] Set the convar: set lonex_discord_guild "YOUR_GUILD_ID"^0')
     end
     
+    -- Test ACE permissions if permission system is enabled
+    Wait(2000) -- Wait for server to fully initialize
+    
+    if Config.Permissions and Config.Permissions.Enabled then
+        -- Actually test if we can assign permissions by doing a test assignment
+        local testId = 'lonex.test.' .. math.random(100000, 999999)
+        local testGroup = 'lonex_ace_test_' .. math.random(1000, 9999)
+        
+        -- Try to add a test principal
+        ExecuteCommand(string.format('add_principal identifier.%s group.%s', testId, testGroup))
+        
+        -- Clean up
+        ExecuteCommand(string.format('remove_principal identifier.%s group.%s', testId, testGroup))
+        
+        -- Assume permissions work - we'll catch actual failures when assigning to real players
+        ACE_PERMISSION_GRANTED = true
+        
+        if Config.Debug then
+            print('^2[LonexDiscord] Permission system initialized^0')
+        end
+        
+        -- Pre-resolve all roles from config on startup
+        LonexDiscord.Permissions.ResolveAllRoles()
+        
+        -- Count and log
+        local roleCount = 0
+        for _ in pairs(Roles or {}) do roleCount = roleCount + 1 end
+        if roleCount > 0 then
+            print('^2[LonexDiscord] Loaded ' .. roleCount .. ' role mappings^0')
+        end
+        
+        -- Sync permissions for any players already connected (e.g., after resource restart)
+        SetTimeout(3000, function()
+            local players = GetPlayers()
+            if #players > 0 then
+                for _, playerId in ipairs(players) do
+                    LonexDiscord.Permissions.SyncPlayer(tonumber(playerId))
+                end
+            end
+        end)
+    end
+    
     -- Check for updates after a short delay
-    Wait(5000)
+    Wait(3000)
     if Config.CheckUpdates ~= false then
         CheckForUpdates()
     end
@@ -114,6 +217,243 @@ RegisterCommand('lonex_update', function(source)
     if source ~= 0 then return end -- Server console only
     print('[LonexDiscord] Checking for updates...')
     CheckForUpdates()
+end, true)
+
+-- Console command to check ACE permission status
+RegisterCommand('lonex_ace_check', function(source)
+    if source ~= 0 then return end -- Server console only
+    
+    print('')
+    print('^3[LonexDiscord] ACE Permission Test^0')
+    print('^3================================^0')
+    print('Resource name: ^2' .. RESOURCE_NAME .. '^0')
+    
+    -- Do an actual test assignment
+    local testId = 'lonex.acetest.' .. math.random(100000, 999999)
+    local testGroup = 'lonex_test_' .. math.random(1000, 9999)
+    
+    print('Testing add_principal...')
+    ExecuteCommand(string.format('add_principal identifier.%s group.%s', testId, testGroup))
+    
+    print('Testing remove_principal...')
+    ExecuteCommand(string.format('remove_principal identifier.%s group.%s', testId, testGroup))
+    
+    print('')
+    print('^2If you see "Access denied" errors above, permissions are NOT working.^0')
+    print('^2If no errors appeared, permissions should work correctly.^0')
+    print('')
+    print('^3To fix permission issues:^0')
+    print('  1. Add ^2exec @' .. RESOURCE_NAME .. '/lonexperms.cfg^0 to server.cfg')
+    print('  2. Make sure it comes BEFORE ^2ensure ' .. RESOURCE_NAME .. '^0')
+    print('  3. Do a full server restart (stop + start)')
+    print('')
+end, true)
+
+-- Console command to show setup instructions
+RegisterCommand('lonex_ace_help', function(source)
+    if source ~= 0 then return end -- Server console only
+    PrintAceSetupInstructions()
+end, true)
+
+-- Console command to list configured roles
+RegisterCommand('lonex_roles', function(source)
+    if source ~= 0 then return end -- Server console only
+    
+    print('')
+    print('^3[LonexDiscord] Configured Roles^0')
+    print('^3================================^0')
+    
+    local configRoles = Roles
+    if configRoles == nil then
+        print('^1Roles table is NIL - config not loaded correctly!^0')
+        return
+    end
+    
+    local count = 0
+    for roleId, config in pairs(configRoles) do
+        count = count + 1
+        local groupStr = type(config) == 'string' and config or (type(config) == 'table' and table.concat(config, ', ') or tostring(config))
+        print('  ' .. roleId .. ' -> group.' .. groupStr)
+    end
+    
+    if count == 0 then
+        print('^3No roles configured. Add them to config.lua:^0')
+        print('')
+        print("Roles = {")
+        print("    ['DISCORD_ROLE_ID'] = 'groupname',")
+        print("}")
+    else
+        print('')
+        print('Total: ' .. count .. ' role mappings')
+    end
+    print('')
+end, true)
+
+-- Console command to sync all players
+RegisterCommand('lonex_syncall', function(source)
+    if source ~= 0 then return end -- Server console only
+    
+    local players = GetPlayers()
+    if #players == 0 then
+        print('^3[LonexDiscord] No players connected^0')
+        return
+    end
+    
+    print('^3[LonexDiscord] Syncing ' .. #players .. ' player(s)...^0')
+    
+    for _, playerId in ipairs(players) do
+        local src = tonumber(playerId)
+        local playerName = GetPlayerName(src) or 'Unknown'
+        local success, err = LonexDiscord.Permissions.SyncPlayer(src)
+        
+        if success then
+            local groups = LonexDiscord.Permissions.GetPlayerGroups(src)
+            print('^2  ✓ ' .. playerName .. ': ' .. (groups and #groups > 0 and table.concat(groups, ', ') or 'no groups') .. '^0')
+        else
+            print('^1  ✗ ' .. playerName .. ': ' .. tostring(err) .. '^0')
+        end
+    end
+    
+    print('^2[LonexDiscord] Sync complete^0')
+end, true)
+
+-- Debug command to diagnose player permission issues
+RegisterCommand('lonex_debug_player', function(source, args)
+    if source ~= 0 then return end -- Server console only
+    
+    local playerId = tonumber(args[1])
+    if not playerId then
+        print('Usage: lonex_debug_player <player_id>')
+        return
+    end
+    
+    local playerName = GetPlayerName(playerId)
+    if not playerName then
+        print('^1Player ' .. playerId .. ' not found^0')
+        return
+    end
+    
+    print('')
+    print('^3═══════════════════════════════════════════════════^0')
+    print('^3  LonexDiscordAPI Debug - Player ' .. playerId .. '^0')
+    print('^3═══════════════════════════════════════════════════^0')
+    print('')
+    print('^2[1] Player Info^0')
+    print('    Name: ' .. playerName)
+    
+    -- Get Discord ID
+    local discordId = LonexDiscord.Utils.GetDiscordIdentifier(playerId)
+    print('    Discord ID: ' .. (discordId or '^1NOT LINKED^0'))
+    
+    if not discordId then
+        print('')
+        print('^1Player does not have Discord linked to FiveM!^0')
+        print('^3They need to link Discord in FiveM settings.^0')
+        return
+    end
+    
+    -- Try to fetch from Discord
+    print('')
+    print('^2[2] Discord API Fetch^0')
+    local roleIds, err = LonexDiscord.API.GetMemberRoleIds(discordId)
+    
+    if not roleIds then
+        print('    ^1Error fetching roles: ' .. tostring(err) .. '^0')
+        print('')
+        print('^1Check:^0')
+        print('  - Is the bot token correct?')
+        print('  - Is the guild ID correct?')
+        print('  - Does the bot have Server Members Intent enabled?')
+        print('  - Is the player in the Discord server?')
+        return
+    end
+    
+    print('    Found ' .. #roleIds .. ' Discord roles:')
+    for _, roleId in ipairs(roleIds) do
+        local role = LonexDiscord.Cache.GetRoleById(roleId)
+        local roleName = role and role.name or 'Unknown'
+        print('    - ' .. roleId .. ' (' .. roleName .. ')')
+    end
+    
+    -- Check config - show the actual global Roles table
+    print('')
+    print('^2[3] Config Roles Table (global Roles)^0')
+    local configRoles = Roles
+    if configRoles == nil then
+        print('    ^1Roles table is NIL - not loaded!^0')
+        configRoles = {}
+    else
+        local configCount = 0
+        for k, v in pairs(configRoles) do 
+            configCount = configCount + 1
+            local groupStr = type(v) == 'string' and v or (type(v) == 'table' and table.concat(v, ', ') or tostring(v))
+            print('    ' .. k .. ' -> ' .. groupStr)
+        end
+        print('    Total configured: ' .. configCount)
+    end
+    
+    -- Check ResolvedRoles
+    print('')
+    print('^2[4] ResolvedRoles (processed)^0')
+    if not ResolvedRoles then
+        print('    ^1ResolvedRoles is NIL - calling ResolveAllRoles()^0')
+        LonexDiscord.Permissions.ResolveAllRoles()
+    end
+    local resolvedCount = 0
+    for k, v in pairs(ResolvedRoles or {}) do
+        resolvedCount = resolvedCount + 1
+        local groupStr = v.groups and table.concat(v.groups, ', ') or 'none'
+        print('    ' .. k .. ' -> ' .. groupStr)
+    end
+    print('    Total resolved: ' .. resolvedCount)
+    
+    -- Check matches
+    print('')
+    print('^2[5] Matching Roles^0')
+    local matchCount = 0
+    for _, roleId in ipairs(roleIds) do
+        local config = configRoles[roleId]
+        if config then
+            matchCount = matchCount + 1
+            local groupStr = type(config) == 'string' and config or table.concat(config, ', ')
+            print('    ^2✓^0 ' .. roleId .. ' -> ' .. groupStr)
+        end
+    end
+    
+    if matchCount == 0 then
+        print('    ^1No matches found!^0')
+        print('')
+        print('^3Add the Discord role IDs to config.lua:^0')
+        print('Roles = {')
+        for _, roleId in ipairs(roleIds) do
+            local role = LonexDiscord.Cache.GetRoleById(roleId)
+            local roleName = role and role.name or 'Unknown'
+            print("    ['" .. roleId .. "'] = 'groupname',  -- " .. roleName)
+        end
+        print('}')
+    else
+        print('')
+        print('    Matched ' .. matchCount .. ' of ' .. #roleIds .. ' roles')
+    end
+    
+    -- Build permissions
+    print('')
+    print('^2[6] Building Permissions^0')
+    local perms, groups = LonexDiscord.Permissions.BuildPermissionsForRoleIds(roleIds)
+    print('    Groups: ' .. (#groups > 0 and table.concat(groups, ', ') or 'none'))
+    print('    Permissions: ' .. #perms)
+    
+    -- Check stored
+    print('')
+    print('^2[7] Currently Stored^0')
+    local storedGroups = LonexDiscord.Permissions.GetPlayerGroups(playerId)
+    local storedPerms = LonexDiscord.Permissions.GetPlayerPermissions(playerId)
+    print('    Stored Groups: ' .. (storedGroups and #storedGroups > 0 and table.concat(storedGroups, ', ') or 'none'))
+    print('    Stored Perms: ' .. (storedPerms and #storedPerms or 0))
+    
+    print('')
+    print('^3═══════════════════════════════════════════════════^0')
+    print('')
 end, true)
 
 
@@ -131,19 +471,55 @@ local PlayerPermissions = {} -- [source] = { permissions = {}, groups = {} }
 -- Resolved role configs (with inheritance flattened)
 local ResolvedRoles = nil
 
+---Normalize a role config to the standard format
+---Handles: string, array of strings, or full config table
+local function NormalizeRoleConfig(roleConfig)
+    if type(roleConfig) == 'string' then
+        -- Simple format: 'groupname'
+        return {
+            groups = { roleConfig },
+            permissions = {},
+            priority = 0
+        }
+    elseif type(roleConfig) == 'table' then
+        -- Check if it's an array of strings (multiple groups)
+        if #roleConfig > 0 and type(roleConfig[1]) == 'string' then
+            -- Array format: { 'group1', 'group2' }
+            return {
+                groups = roleConfig,
+                permissions = {},
+                priority = 0
+            }
+        else
+            -- Advanced format: { groups = {...}, permissions = {...}, priority = X }
+            return {
+                groups = roleConfig.groups or {},
+                permissions = roleConfig.permissions or {},
+                priority = roleConfig.priority or 0,
+                inherits = roleConfig.inherits
+            }
+        end
+    end
+    
+    return { groups = {}, permissions = {}, priority = 0 }
+end
+
 ---Resolve inheritance for a single role config
-local function ResolveRoleInheritance(roleName, visited)
+local function ResolveRoleInheritance(roleName, visited, roleMappings)
     visited = visited or {}
+    roleMappings = roleMappings or Roles or {}
     
     if visited[roleName] then
-        return { permissions = {}, groups = {} }
+        return { permissions = {}, groups = {}, priority = 0 }
     end
     visited[roleName] = true
     
-    local roleConfig = Config.Permissions and Config.Permissions.Roles and Config.Permissions.Roles[roleName]
-    if not roleConfig then
-        return { permissions = {}, groups = {} }
+    local rawConfig = roleMappings[roleName]
+    if not rawConfig then
+        return { permissions = {}, groups = {}, priority = 0 }
     end
+    
+    local roleConfig = NormalizeRoleConfig(rawConfig)
     
     local resolved = {
         permissions = {},
@@ -151,9 +527,10 @@ local function ResolveRoleInheritance(roleName, visited)
         priority = roleConfig.priority or 0
     }
     
+    -- Handle inheritance (advanced format only)
     if roleConfig.inherits then
         for _, inheritedRole in ipairs(roleConfig.inherits) do
-            local inherited = ResolveRoleInheritance(inheritedRole, visited)
+            local inherited = ResolveRoleInheritance(inheritedRole, visited, roleMappings)
             for _, perm in ipairs(inherited.permissions) do
                 resolved.permissions[perm] = true
             end
@@ -163,18 +540,21 @@ local function ResolveRoleInheritance(roleName, visited)
         end
     end
     
+    -- Add this role's permissions
     if roleConfig.permissions then
         for _, perm in ipairs(roleConfig.permissions) do
             resolved.permissions[perm] = true
         end
     end
     
+    -- Add this role's groups
     if roleConfig.groups then
         for _, group in ipairs(roleConfig.groups) do
             resolved.groups[group] = true
         end
     end
     
+    -- Convert sets to arrays
     local permArray = {}
     for perm in pairs(resolved.permissions) do
         table.insert(permArray, perm)
@@ -190,21 +570,134 @@ local function ResolveRoleInheritance(roleName, visited)
     return resolved
 end
 
+-- Load role mappings from convars (lonexperms.cfg)
+local function LoadRolesFromConvars()
+    local convarRoles = {}
+    local loadedCount = 0
+    
+    -- We need to check for convars, but FiveM doesn't let us enumerate them
+    -- So we'll check the Config.Permissions.Roles keys and also look for 
+    -- any convars that were set via lonexperms.cfg
+    
+    -- The trick: We can't enumerate convars, but we CAN check if specific ones exist
+    -- Users will set: set lonex_perm_ROLEID "groupname"
+    -- We need to scan for these when a player joins and we know their role IDs
+    
+    -- For now, we'll store a flag that convar loading is enabled
+    -- and check convars dynamically when building permissions
+    
+    -- Check for default groups convar
+    local defaultGroupsConvar = GetConvar('lonex_default_groups', '')
+    if defaultGroupsConvar ~= '' then
+        local groups = {}
+        for group in string.gmatch(defaultGroupsConvar, '([^,]+)') do
+            group = group:match('^%s*(.-)%s*$') -- trim whitespace
+            if group ~= '' then
+                table.insert(groups, group)
+            end
+        end
+        if #groups > 0 then
+            Config.Permissions = Config.Permissions or {}
+            Config.Permissions.DefaultGroups = Config.Permissions.DefaultGroups or {}
+            for _, group in ipairs(groups) do
+                local found = false
+                for _, existing in ipairs(Config.Permissions.DefaultGroups) do
+                    if existing == group then found = true break end
+                end
+                if not found then
+                    table.insert(Config.Permissions.DefaultGroups, group)
+                end
+            end
+            if Config.Debug then
+                print('^2[LonexDiscord] Loaded default groups from convar: ' .. table.concat(groups, ', ') .. '^0')
+            end
+        end
+    end
+    
+    return convarRoles
+end
+
+-- Check convar for a specific role ID (called when building permissions)
+local function GetRoleConfigFromConvar(roleId)
+    local convar = GetConvar('lonex_perm_' .. roleId, '')
+    if convar == '' then
+        return nil
+    end
+    
+    -- Parse the convar value (can be "group" or "group1,group2")
+    local groups = {}
+    for group in string.gmatch(convar, '([^,]+)') do
+        group = group:match('^%s*(.-)%s*$') -- trim whitespace
+        if group ~= '' then
+            table.insert(groups, group)
+        end
+    end
+    
+    if #groups == 0 then
+        return nil
+    end
+    
+    return {
+        groups = groups,
+        permissions = {},
+        priority = 0
+    }
+end
+
 function PermissionsModule.ResolveAllRoles()
     ResolvedRoles = {}
     
-    if not Config.Permissions then
-        return
+    -- Load any settings from convars first
+    LoadRolesFromConvars()
+    
+    -- Get roles from the global Roles table (roles.lua)
+    local roleMappings = Roles or {}
+    
+    -- Also support legacy Config.Permissions.Roles if it exists
+    if Config.Permissions and Config.Permissions.Roles then
+        for roleId, config in pairs(Config.Permissions.Roles) do
+            if not roleMappings[roleId] then
+                roleMappings[roleId] = config
+            end
+        end
     end
     
-    if not Config.Permissions.Roles then
-        return
+    for roleName, rawConfig in pairs(roleMappings) do
+        ResolvedRoles[roleName] = ResolveRoleInheritance(roleName, nil, roleMappings)
+        local normalized = NormalizeRoleConfig(rawConfig)
+        ResolvedRoles[roleName].priority = normalized.priority or 0
     end
     
-    for roleName, roleConfig in pairs(Config.Permissions.Roles) do
-        ResolvedRoles[roleName] = ResolveRoleInheritance(roleName)
-        ResolvedRoles[roleName].priority = roleConfig.priority or 0
+    -- Log loaded roles count
+    local count = 0
+    for _ in pairs(ResolvedRoles) do count = count + 1 end
+    if count > 0 and Config.Debug then
+        print('^2[LonexDiscord] Loaded ' .. count .. ' role mappings^0')
     end
+end
+
+-- Get resolved config for a role (checks both config.lua and convars)
+local function GetResolvedRoleConfig(roleId)
+    -- First check if we have it in ResolvedRoles (from config.lua)
+    if ResolvedRoles and ResolvedRoles[roleId] then
+        return ResolvedRoles[roleId]
+    end
+    
+    -- Then check convars
+    local convarConfig = GetRoleConfigFromConvar(roleId)
+    if convarConfig then
+        -- Cache it for future use
+        ResolvedRoles = ResolvedRoles or {}
+        ResolvedRoles[roleId] = convarConfig
+        
+        if Config.Debug then
+            print('^2[LonexDiscord] Loaded role ' .. roleId .. ' from convar -> ' .. table.concat(convarConfig.groups, ', ') .. '^0')
+        end
+        
+        return convarConfig
+    end
+    
+    return nil
 end
 
 function PermissionsModule.BuildPermissionsForRoleIds(roleIds)
@@ -230,9 +723,9 @@ function PermissionsModule.BuildPermissionsForRoleIds(roleIds)
         end
     end
     
-    -- Match role IDs against configured roles
+    -- Match role IDs against configured roles (checks both config.lua and convars)
     for _, roleId in ipairs(roleIds) do
-        local resolved = ResolvedRoles and ResolvedRoles[roleId]
+        local resolved = GetResolvedRoleConfig(roleId)
         if resolved then
             table.insert(matchedRoles, {
                 id = roleId,
@@ -242,14 +735,14 @@ function PermissionsModule.BuildPermissionsForRoleIds(roleIds)
     end
     
     table.sort(matchedRoles, function(a, b)
-        return a.config.priority < b.config.priority
+        return (a.config.priority or 0) < (b.config.priority or 0)
     end)
     
     for _, role in ipairs(matchedRoles) do
-        for _, perm in ipairs(role.config.permissions) do
+        for _, perm in ipairs(role.config.permissions or {}) do
             allPermissions[perm] = true
         end
-        for _, group in ipairs(role.config.groups) do
+        for _, group in ipairs(role.config.groups or {}) do
             allGroups[group] = true
         end
     end
@@ -273,12 +766,37 @@ local function SanitizeAceString(str)
 end
 
 function PermissionsModule.AssignToPlayer(source, permissions, groups)
-    local identifier = 'player.' .. source
+    -- Check if we have permission to assign ACE
+    if not ACE_PERMISSION_GRANTED and not ACE_WARNING_SHOWN then
+        ACE_WARNING_SHOWN = true
+        PrintAceSetupInstructions()
+    end
+    
+    -- Use Discord identifier for ACE (like Badger does)
+    local discordId = LonexDiscord.Utils.GetDiscordIdentifier(source)
+    if not discordId then
+        print('^1[LonexDiscord] Cannot assign permissions - no Discord identifier for player ' .. source .. '^0')
+        return
+    end
+    
+    local identifier = 'discord:' .. discordId
     
     PlayerPermissions[source] = {
         permissions = permissions,
-        groups = groups
+        groups = groups,
+        discordId = discordId
     }
+    
+    -- Log what we're trying to assign
+    if Config.Debug or not ACE_PERMISSION_GRANTED then
+        local playerName = GetPlayerName(source) or 'Unknown'
+        if not ACE_PERMISSION_GRANTED then
+            print('^3[LonexDiscord] WARNING: Attempting to assign permissions without ACE access^0')
+            print('^3[LonexDiscord] Player: ' .. playerName .. ' (ID: ' .. source .. ')^0')
+            print('^3[LonexDiscord] Groups: ' .. table.concat(groups, ', ') .. '^0')
+            print('^3[LonexDiscord] Permissions: ' .. #permissions .. ' total^0')
+        end
+    end
     
     for _, group in ipairs(groups) do
         local safeGroup = SanitizeAceString(group)
@@ -299,16 +817,23 @@ function PermissionsModule.RemoveFromPlayer(source)
     local stored = PlayerPermissions[source]
     if not stored then return end
     
-    local identifier = 'player.' .. source
+    -- Use stored Discord ID, or fetch it
+    local discordId = stored.discordId or LonexDiscord.Utils.GetDiscordIdentifier(source)
+    if not discordId then
+        PlayerPermissions[source] = nil
+        return
+    end
     
-    for _, perm in ipairs(stored.permissions) do
+    local identifier = 'discord:' .. discordId
+    
+    for _, perm in ipairs(stored.permissions or {}) do
         local safePerm = SanitizeAceString(perm)
         if safePerm and safePerm ~= '' then
             ExecuteCommand(string.format('remove_ace identifier.%s %s allow', identifier, safePerm))
         end
     end
     
-    for _, group in ipairs(stored.groups) do
+    for _, group in ipairs(stored.groups or {}) do
         local safeGroup = SanitizeAceString(group)
         if safeGroup and safeGroup ~= '' then
             ExecuteCommand(string.format('remove_principal identifier.%s group.%s', identifier, safeGroup))
@@ -1866,9 +2391,8 @@ if Config.Debug then
             print('Roles: ' .. #member.roles .. ' roles')
             for _, roleId in ipairs(member.roles) do
                 local role = Cache.GetRoleById(roleId)
-                if role then
-                    print('  - ' .. role.name)
-                end
+                local roleName = role and role.name or 'Unknown'
+                print('  - ' .. roleId .. ' (' .. roleName .. ')')
             end
             print('Joined: ' .. tostring(member.joinedAt))
             
@@ -1967,42 +2491,6 @@ if Config.Debug then
         end
     end, true)
     
-    RegisterCommand('lonex_discord_perms', function(source, args)
-        local targetSource = tonumber(args[1])
-        
-        if source ~= 0 and not targetSource then
-            -- In-game, no target specified - check self
-            targetSource = source
-        elseif not targetSource then
-            print('Usage: lonex_discord_perms <player_id>')
-            return
-        end
-        
-        local PermsModule = LonexDiscord.Permissions
-        
-        print('--- Permissions for player ' .. targetSource .. ' ---')
-        
-        local permissions = PermsModule.GetPlayerPermissions(targetSource)
-        local groups = PermsModule.GetPlayerGroups(targetSource)
-        
-        if groups and #groups > 0 then
-            print('Groups: ' .. table.concat(groups, ', '))
-        else
-            print('Groups: none')
-        end
-        
-        if permissions and #permissions > 0 then
-            print('Permissions (' .. #permissions .. '):')
-            for _, perm in ipairs(permissions) do
-                print('  - ' .. perm)
-            end
-        else
-            print('Permissions: none')
-        end
-        
-        print('-------------------------------')
-    end, false)
-    
     RegisterCommand('lonex_discord_hasperm', function(source, args)
         local targetSource = tonumber(args[1])
         local permission = args[2]
@@ -2036,10 +2524,6 @@ if Config.Debug then
         
         if not PermsModule then
             print('ERROR: Permissions module not loaded!')
-            print('LonexDiscord table keys:')
-            for k, v in pairs(LonexDiscord or {}) do
-                print('  - ' .. tostring(k) .. ' = ' .. type(v))
-            end
             return
         end
         
@@ -2072,13 +2556,11 @@ if Config.Debug then
             return
         end
         
-        print('Syncing permissions for player ' .. targetSource .. ' using Discord ID ' .. discordId .. '...')
+        print('Syncing permissions for player ' .. targetSource .. '...')
         
         local PermsModule = LonexDiscord.Permissions
         
-        -- Get role IDs directly using Discord ID
         local roleIds, err = LonexDiscord.API.GetMemberRoleIds(discordId)
-        print('[DEBUG] Role IDs: ' .. (roleIds and table.concat(roleIds, ', ') or 'nil'))
         
         if not roleIds then
             print('FAILED to get roles: ' .. tostring(err))
@@ -2086,12 +2568,11 @@ if Config.Debug then
         end
         
         local perms, groups = PermsModule.BuildPermissionsForRoleIds(roleIds)
-        print('[DEBUG] Built perms: ' .. #perms .. ', groups: ' .. #groups)
         
         PermsModule.RemoveFromPlayer(targetSource)
         PermsModule.AssignToPlayer(targetSource, perms, groups)
         
-        print('SUCCESS: Assigned ' .. #perms .. ' permissions and ' .. #groups .. ' groups')
+        print('SUCCESS: Assigned ' .. #groups .. ' groups')
     end, false)
     
     -- Test webhook (send test message)
@@ -2163,6 +2644,76 @@ if Config.Debug then
     end, false)
 end
 
+-- ESSENTIAL COMMANDS (Always available)
+
+RegisterCommand('lonex_discord_perms', function(source, args)
+    local targetSource = tonumber(args[1])
+    
+    if source ~= 0 and not targetSource then
+        targetSource = source
+    elseif not targetSource then
+        print('Usage: lonex_discord_perms <player_id>')
+        return
+    end
+    
+    local PermsModule = LonexDiscord.Permissions
+    
+    print('--- Permissions for player ' .. targetSource .. ' ---')
+    
+    local permissions = PermsModule.GetPlayerPermissions(targetSource)
+    local groups = PermsModule.GetPlayerGroups(targetSource)
+    
+    if groups and #groups > 0 then
+        print('Groups: ' .. table.concat(groups, ', '))
+    else
+        print('Groups: none')
+    end
+    
+    if permissions and #permissions > 0 then
+        print('Permissions (' .. #permissions .. '):')
+        for _, perm in ipairs(permissions) do
+            print('  - ' .. perm)
+        end
+    else
+        print('Permissions: none')
+    end
+    
+    print('-------------------------------')
+end, false)
+
+RegisterCommand('lonex_discord_syncperms', function(source, args)
+    local targetSource = tonumber(args[1])
+    
+    if source ~= 0 and not targetSource then
+        targetSource = source
+    end
+    
+    local PermsModule = LonexDiscord.Permissions
+    
+    if not PermsModule then
+        print('ERROR: Permissions module not loaded!')
+        return
+    end
+    
+    if targetSource then
+        print('Syncing permissions for player ' .. targetSource .. '...')
+        local success, err = PermsModule.SyncPlayer(targetSource)
+        if success then
+            local groups = PermsModule.GetPlayerGroups(targetSource)
+            print('SUCCESS: Groups: ' .. (groups and #groups > 0 and table.concat(groups, ', ') or 'none'))
+        else
+            print('FAILED: ' .. tostring(err))
+        end
+    elseif args[1] == 'all' then
+        print('Resyncing permissions for all players...')
+        PermsModule.ResyncAllPlayers()
+        print('Done!')
+    else
+        print('Usage: lonex_discord_syncperms <player_id>')
+        print('Or: lonex_discord_syncperms all')
+    end
+end, false)
+
 -- EVENTS
 
 local Perms = LonexDiscord.Permissions
@@ -2185,21 +2736,41 @@ AddEventHandler('playerConnecting', function(name, setKickReason, deferrals)
     else
         Utils.Debug('Player connecting: %s (No Discord linked)', name)
     end
+    
+    -- Sync permissions during connection (before vMenu loads)
+    if Config.Permissions and Config.Permissions.Enabled and discordId then
+        deferrals.defer()
+        deferrals.update('Syncing permissions...')
+        
+        Wait(0) -- Yield to allow deferrals to work
+        
+        local success, err = Perms.SyncPlayer(source)
+        if success then
+            local groups = Perms.GetPlayerGroups(source)
+            local playerName = name or 'Unknown'
+            if groups and #groups > 0 then
+                print('^2[LonexDiscord] ^0' .. playerName .. ' assigned groups: ' .. table.concat(groups, ', '))
+            end
+        end
+        
+        deferrals.done()
+    end
 end)
 
--- Player fully joined - sync permissions
+-- Player fully joined - backup sync (in case connecting sync failed)
 AddEventHandler('playerJoining', function()
     local source = source
     
     if Config.Permissions and Config.Permissions.Enabled then
-        -- Small delay to ensure player is fully connected
-        SetTimeout(1000, function()
-            -- Check if player still exists (might have disconnected)
-            if GetPlayerName(source) then
-                Utils.Debug('Syncing permissions for player %d...', source)
-                Perms.SyncPlayer(source)
-            end
-        end)
+        -- Only sync if not already synced
+        local existing = Perms.GetPlayerGroups(source)
+        if not existing or #existing == 0 then
+            SetTimeout(500, function()
+                if GetPlayerName(source) then
+                    Perms.SyncPlayer(source)
+                end
+            end)
+        end
     end
 end)
 
@@ -3503,3 +4074,210 @@ exports('Announce', function(message, sourceId)
 end)
 
 LonexDiscord.ServerUtils = ServerUtilsModule
+
+-- ============================================================================
+-- VEHICLE MANAGEMENT & MODERATION COMMANDS
+-- ============================================================================
+
+local ModerationModule = {}
+local DVAllInProgress = false
+
+-- Helper to check if player has allowed role
+local function HasAllowedRole(source, allowedRoles)
+    if not allowedRoles or #allowedRoles == 0 then
+        return true -- Empty = everyone allowed
+    end
+    
+    local discordId = LonexDiscord.Utils.GetDiscordIdentifier(source)
+    if not discordId then
+        return false
+    end
+    
+    local roleIds, err = LonexDiscord.API.GetMemberRoleIds(discordId)
+    if not roleIds then
+        return false
+    end
+    
+    for _, allowedRole in ipairs(allowedRoles) do
+        for _, playerRole in ipairs(roleIds) do
+            if allowedRole == playerRole then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+-- Delete Vehicle command
+CreateThread(function()
+    Wait(1000)
+    
+    if Config.DeleteVehicle and Config.DeleteVehicle.Enabled then
+        RegisterCommand(Config.DeleteVehicle.Command or 'dv', function(source, args)
+            if source == 0 then return end
+            
+            -- Check permission
+            if not HasAllowedRole(source, Config.DeleteVehicle.AllowedRoles) then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.DeleteVehicle.Messages.NoPermission },
+                })
+                return
+            end
+            
+            -- Tell client to delete nearby vehicle
+            TriggerClientEvent('LonexDiscord:DeleteVehicle', source, Config.DeleteVehicle.SearchRadius or 5.0)
+        end, false)
+        
+        print('^2[LonexDiscord] ^0Registered command: /' .. (Config.DeleteVehicle.Command or 'dv'))
+    end
+    
+    -- Delete All Vehicles command
+    if Config.DeleteAllVehicles and Config.DeleteAllVehicles.Enabled then
+        RegisterCommand(Config.DeleteAllVehicles.Command or 'dvall', function(source, args)
+            if source == 0 then return end
+            
+            -- Check permission
+            if not HasAllowedRole(source, Config.DeleteAllVehicles.AllowedRoles) then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.DeleteAllVehicles.Messages.NoPermission },
+                })
+                return
+            end
+            
+            -- Check if already running
+            if DVAllInProgress then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.DeleteAllVehicles.Messages.AlreadyRunning },
+                })
+                return
+            end
+            
+            DVAllInProgress = true
+            local countdown = Config.DeleteAllVehicles.Countdown or 20
+            
+            -- Announce starting
+            TriggerClientEvent('chat:addMessage', -1, {
+                args = { string.format(Config.DeleteAllVehicles.Messages.Starting, countdown) },
+            })
+            
+            -- Countdown warnings at 10, 5, 3, 2, 1
+            local warnings = { 10, 5, 3, 2, 1 }
+            
+            CreateThread(function()
+                local remaining = countdown
+                
+                while remaining > 0 do
+                    Wait(1000)
+                    remaining = remaining - 1
+                    
+                    for _, warn in ipairs(warnings) do
+                        if remaining == warn then
+                            TriggerClientEvent('chat:addMessage', -1, {
+                                args = { string.format(Config.DeleteAllVehicles.Messages.Countdown, remaining) },
+                            })
+                            break
+                        end
+                    end
+                end
+                
+                -- Set up response tracking
+                local players = GetPlayers()
+                dvallExpectedResponses = #players
+                dvallDeletedCount = 0
+                dvallResponseCount = 0
+                
+                -- Tell all clients to delete unoccupied vehicles and report count
+                TriggerClientEvent('LonexDiscord:DeleteAllVehicles', -1, Config.DeleteAllVehicles.OnlyUnoccupied ~= false)
+                DVAllInProgress = false
+            end)
+        end, false)
+        
+        print('^2[LonexDiscord] ^0Registered command: /' .. (Config.DeleteAllVehicles.Command or 'dvall'))
+    end
+    
+    -- Clear Chat command
+    if Config.ClearChat and Config.ClearChat.Enabled then
+        RegisterCommand(Config.ClearChat.Command or 'clearchat', function(source, args)
+            if source == 0 then return end
+            
+            -- Check permission
+            if not HasAllowedRole(source, Config.ClearChat.AllowedRoles) then
+                TriggerClientEvent('chat:addMessage', source, {
+                    args = { Config.ClearChat.Messages.NoPermission },
+                })
+                return
+            end
+            
+            -- Clear chat using the built-in chat:clear event
+            TriggerClientEvent('chat:clear', -1)
+            
+            -- Show cleared by message
+            if Config.ClearChat.ShowClearedBy then
+                local playerName = GetPlayerName(source) or 'Unknown'
+                TriggerClientEvent('chat:addMessage', -1, {
+                    args = { string.format(Config.ClearChat.Messages.Cleared, playerName) },
+                })
+            end
+        end, false)
+        
+        print('^2[LonexDiscord] ^0Registered command: /' .. (Config.ClearChat.Command or 'clearchat'))
+    end
+end)
+
+-- Event handler for vehicle deletion results
+RegisterNetEvent('LonexDiscord:DeleteVehicle:Result')
+AddEventHandler('LonexDiscord:DeleteVehicle:Result', function(success)
+    local source = source
+    
+    if success then
+        TriggerClientEvent('chat:addMessage', source, {
+            args = { Config.DeleteVehicle.Messages.Deleted },
+        })
+    else
+        TriggerClientEvent('chat:addMessage', source, {
+            args = { Config.DeleteVehicle.Messages.NotFound },
+        })
+    end
+end)
+
+-- Event handler for dvall results (aggregate count from all clients)
+local dvallDeletedCount = 0
+local dvallResponseCount = 0
+local dvallExpectedResponses = 0
+
+RegisterNetEvent('LonexDiscord:DeleteAllVehicles:Result')
+AddEventHandler('LonexDiscord:DeleteAllVehicles:Result', function(count)
+    dvallDeletedCount = dvallDeletedCount + (count or 0)
+    dvallResponseCount = dvallResponseCount + 1
+    
+    -- When all clients have responded (or after timeout), announce the total
+    if dvallResponseCount >= dvallExpectedResponses and dvallExpectedResponses > 0 then
+        TriggerClientEvent('chat:addMessage', -1, {
+            args = { string.format(Config.DeleteAllVehicles.Messages.Deleted, dvallDeletedCount) },
+        })
+        
+        -- Reset counters
+        dvallDeletedCount = 0
+        dvallResponseCount = 0
+        dvallExpectedResponses = 0
+    end
+end)
+
+-- Fallback: if not all clients respond within 5 seconds, announce anyway
+CreateThread(function()
+    while true do
+        Wait(5000)
+        if dvallExpectedResponses > 0 and dvallResponseCount > 0 then
+            -- Force announce if we've been waiting
+            TriggerClientEvent('chat:addMessage', -1, {
+                args = { string.format(Config.DeleteAllVehicles.Messages.Deleted, dvallDeletedCount) },
+            })
+            dvallDeletedCount = 0
+            dvallResponseCount = 0
+            dvallExpectedResponses = 0
+        end
+    end
+end)
+
+LonexDiscord.Moderation = ModerationModule

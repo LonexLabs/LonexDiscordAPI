@@ -1201,3 +1201,90 @@ CreateThread(function()
         Wait(sleep)
     end
 end)
+
+-- ============================================================================
+-- VEHICLE DELETION HANDLERS
+-- ============================================================================
+
+-- Get closest vehicle to player
+local function GetClosestVehicle(radius)
+    local playerPed = PlayerPedId()
+    local playerCoords = GetEntityCoords(playerPed)
+    local closestVehicle = nil
+    local closestDistance = radius or 5.0
+    
+    local vehicles = GetGamePool('CVehicle')
+    for _, vehicle in ipairs(vehicles) do
+        local vehicleCoords = GetEntityCoords(vehicle)
+        local distance = #(playerCoords - vehicleCoords)
+        
+        if distance < closestDistance then
+            closestDistance = distance
+            closestVehicle = vehicle
+        end
+    end
+    
+    return closestVehicle
+end
+
+-- Delete single vehicle (current or nearby)
+RegisterNetEvent('LonexDiscord:DeleteVehicle')
+AddEventHandler('LonexDiscord:DeleteVehicle', function(searchRadius)
+    local playerPed = PlayerPedId()
+    local vehicle = nil
+    
+    -- Check if player is in a vehicle
+    if IsPedInAnyVehicle(playerPed, false) then
+        vehicle = GetVehiclePedIsIn(playerPed, false)
+    else
+        -- Find closest vehicle
+        vehicle = GetClosestVehicle(searchRadius or 5.0)
+    end
+    
+    if vehicle and DoesEntityExist(vehicle) then
+        -- Get out of vehicle first if inside
+        if IsPedInAnyVehicle(playerPed, false) then
+            TaskLeaveVehicle(playerPed, vehicle, 16)
+            Wait(500)
+        end
+        
+        -- Delete the vehicle
+        SetEntityAsMissionEntity(vehicle, true, true)
+        DeleteVehicle(vehicle)
+        
+        TriggerServerEvent('LonexDiscord:DeleteVehicle:Result', true)
+    else
+        TriggerServerEvent('LonexDiscord:DeleteVehicle:Result', false)
+    end
+end)
+
+-- Delete all unoccupied vehicles
+RegisterNetEvent('LonexDiscord:DeleteAllVehicles')
+AddEventHandler('LonexDiscord:DeleteAllVehicles', function(onlyUnoccupied)
+    local deletedCount = 0
+    local vehicles = GetGamePool('CVehicle')
+    
+    for _, vehicle in ipairs(vehicles) do
+        if DoesEntityExist(vehicle) then
+            local shouldDelete = true
+            
+            -- Check if vehicle has occupants
+            if onlyUnoccupied then
+                for seat = -1, GetVehicleMaxNumberOfPassengers(vehicle) - 1 do
+                    if not IsVehicleSeatFree(vehicle, seat) then
+                        shouldDelete = false
+                        break
+                    end
+                end
+            end
+            
+            if shouldDelete then
+                SetEntityAsMissionEntity(vehicle, true, true)
+                DeleteVehicle(vehicle)
+                deletedCount = deletedCount + 1
+            end
+        end
+    end
+    
+    TriggerServerEvent('LonexDiscord:DeleteAllVehicles:Result', deletedCount)
+end)
