@@ -524,3 +524,149 @@ Config.ClearChat = {
         NoPermission = '^1You do not have permission to clear chat.',
     },
 }
+
+-- ============================================================================
+-- ACTIVITY SYSTEM (Duty Tracking, Blips, Time Logging)
+-- ============================================================================
+
+Config.ActivitySystem = {
+    Enabled = false,
+    
+    -- Commands
+    Commands = {
+        Duty = 'duty',              -- /duty [department] to clock in/out
+        BlipTag = 'bliptag',        -- /bliptag [id] to change displayed tag
+        Units = 'units',            -- /units to list on-duty players
+    },
+    
+    -- Database storage (requires oxmysql)
+    Database = {
+        Enabled = false,
+        TablePrefix = 'lonex_',     -- Tables: lonex_duty_sessions, lonex_duty_totals
+    },
+    
+    -- HTTP API for external access (website, Discord bot, etc.)
+    API = {
+        Enabled = false,
+        Endpoint = '/lonex/activity',
+        AuthToken = '',             -- Set a secret token for authentication
+    },
+    
+    -- Blip settings
+    Blips = {
+        Enabled = true,
+        OnlyForOnDuty = true,       -- Only show blips to other on-duty players
+        Scale = 0.85,
+        ShowName = true,            -- Show player name on blip
+        ShowDepartment = true,      -- Show department tag on blip
+        ShowHeading = true,         -- Show direction cone (which way they're facing)
+        RefreshInterval = 2000,     -- How often to update blip positions (ms)
+    },
+    
+    -- Actions when going off duty
+    ClearOnOffDuty = {
+        Weapons = false,
+        Armor = false,
+    },
+    
+    -- Automatically clock out when player disconnects
+    AutoOffDutyOnDisconnect = true,
+    
+    -- Discord logging (sends embeds via bot to channels)
+    DiscordLogs = {
+        Enabled = false,
+        -- Per-department channels can be set in Departments config below
+        -- Or set a default channel for all departments:
+        DefaultChannelId = '',
+    },
+    
+    -- Department definitions
+    Departments = {
+        ['leo'] = {
+            Label = 'Law Enforcement',
+            ShortLabel = 'LEO',
+            AllowedRoles = {
+                -- 'ROLE_ID_1',
+            },
+            -- Blip sprites (see: https://docs.fivem.net/docs/game-references/blips/)
+            BlipSpriteOnFoot = 1,       -- Circle when on foot
+            BlipSpriteInVehicle = 56,   -- Car icon when in vehicle
+            BlipColor = 3,              -- Blue
+            LogChannelId = '',          -- Discord channel for this department's logs
+            
+            -- Loadout given when going on duty (removed when going off duty)
+            -- Attachments: https://wiki.rage.mp/index.php?title=Weapons_Components
+            -- Tints: 0=Normal, 1=Green, 2=Gold, 3=Pink, 4=Army, 5=LSPD, 6=Orange, 7=Platinum
+            Loadout = {
+                Armor = 100,            -- Set to 0 or remove to not give armor
+                Weapons = {
+                    -- { weapon = 'WEAPON_COMBATPISTOL', ammo = 120, tint = 5, attachments = { 'COMPONENT_AT_PI_FLSH' } },
+                    -- { weapon = 'WEAPON_STUNGUN', ammo = 1 },
+                    -- { weapon = 'WEAPON_NIGHTSTICK', ammo = 1 },
+                    -- { weapon = 'WEAPON_FLASHLIGHT', ammo = 1 },
+                    -- { weapon = 'WEAPON_CARBINERIFLE', ammo = 180, tint = 5, attachments = { 
+                    --     'COMPONENT_AT_AR_FLSH',      -- Flashlight
+                    --     'COMPONENT_AT_SCOPE_MEDIUM', -- Scope
+                    --     'COMPONENT_AT_AR_AFGRIP',    -- Grip
+                    -- }},
+                    -- { weapon = 'WEAPON_PUMPSHOTGUN', ammo = 40, attachments = { 'COMPONENT_AT_AR_FLSH' } },
+                },
+            },
+        },
+        ['fire'] = {
+            Label = 'Fire Department',
+            ShortLabel = 'FIRE',
+            AllowedRoles = {
+                -- 'ROLE_ID_1',
+            },
+            BlipSpriteOnFoot = 1,       -- Circle when on foot
+            BlipSpriteInVehicle = 56,   -- Car icon when in vehicle
+            BlipColor = 1,              -- Red
+            LogChannelId = '',
+            
+            Loadout = {
+                Armor = 50,
+                Weapons = {
+                    -- { weapon = 'WEAPON_FIREEXTINGUISHER', ammo = 100 },
+                },
+            },
+        },
+        ['ems'] = {
+            Label = 'Emergency Medical Services',
+            ShortLabel = 'EMS',
+            AllowedRoles = {
+                -- 'ROLE_ID_1',
+            },
+            BlipSpriteOnFoot = 1,       -- Circle when on foot
+            BlipSpriteInVehicle = 56,   -- Car icon when in vehicle
+            BlipColor = 2,              -- Green
+            LogChannelId = '',
+            
+            Loadout = {
+                Armor = 0,
+                Weapons = {
+                    -- { weapon = 'WEAPON_FLASHLIGHT', ammo = 1 },
+                },
+            },
+        },
+    },
+    
+    Messages = {
+        OnDuty = '^2You are now ^3ON DUTY^2 as ^5%s^2.',
+        OffDuty = '^1You are now ^3OFF DUTY^1. Time on duty: ^5%s^1.',
+        NoDepartment = '^1You do not have permission to go on duty for any department.',
+        SelectDepartment = '^3You have access to multiple departments. Use: ^5/duty <department>',
+        AvailableDepartments = '^3Available: ^5%s',
+        AlreadyOnDuty = '^1You are already on duty as ^5%s^1. Use ^5/duty^1 to clock out.',
+        NotOnDuty = '^1You are not currently on duty.',
+        InvalidDepartment = '^1Invalid department. Available: ^5%s',
+        NoPermissionDepartment = '^1You do not have permission for the ^5%s^1 department.',
+        BlipTagChanged = '^2Blip tag changed to ^5%s^2.',
+        BlipTagList = '^3Available blip tags:',
+        BlipTagCurrent = '^3Current tag: ^5%s',
+        NoBlipTags = '^1You need to be on duty to change your blip tag.',
+        UnitsHeader = '^3=== On-Duty Units ===',
+        UnitsNone = '^1No units currently on duty.',
+        UnitEntry = '^5[%s] ^0%s ^7(ID: %d) - ^3%s',
+    },
+}

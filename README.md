@@ -71,6 +71,28 @@ It provides seamless Discord role syncing, permissions, webhooks, player data ac
 
 ---
 
+### 📊 Activity System (NEW in v1.4.0)
+- **Duty Tracking**  
+  Clock in/out with `/duty` command, track time on duty
+- **Department System**  
+  Configure multiple departments (LEO, Fire, EMS, etc.) with role-based access
+- **Live Blips**  
+  Real-time blips for on-duty players with dynamic sprites (on-foot vs in-vehicle)
+- **Siren Detection**  
+  Blips flash red/blue when lights & sirens are active
+- **Heading Indicator**  
+  Optional direction cone showing which way players are facing
+- **Loadout System**  
+  Auto-give weapons, armor, attachments & tints on duty; remove on off-duty
+- **Database Integration**  
+  Optional MySQL logging via oxmysql for duty sessions & totals
+- **HTTP API**  
+  REST endpoints for external access (websites, Discord bots, dashboards)
+- **Discord Logging**  
+  Clock-in/out embeds sent to department channels via bot
+
+---
+
 ### 🎮 Server Utilities
 - **AOP (Area of Play)**  
   Set and display the current roleplay area
@@ -146,6 +168,7 @@ The documentation includes:
 - Server utilities configuration
 - Emergency calls setup
 - Tags system customization
+- Activity system configuration
 - API & export reference
 
 ---
@@ -159,6 +182,8 @@ The documentation includes:
 - Roleplay server utilities (AOP, PeaceTime, HUD)
 - Emergency services dispatch system
 - Player identification with head/chat tags
+- Staff activity tracking & leaderboards
+- Department duty management
 
 ---
 
@@ -176,7 +201,13 @@ The documentation includes:
 | `/911 <message>` | Send emergency call |
 | `/311 <message>` | Send non-emergency call |
 | `/resp <id>` | Respond to a call |
-| `/duty` | Toggle duty status |
+
+### Activity System Commands
+| Command | Description |
+|---------|-------------|
+| `/duty [department]` | Clock in/out of duty |
+| `/bliptag [id]` | Change displayed blip tag |
+| `/units` | List all on-duty players |
 
 ### Moderation Commands
 | Command | Description |
@@ -191,6 +222,40 @@ The documentation includes:
 | `lonex_roles` | List all configured role mappings |
 | `lonex_syncall` | Manually sync all connected players |
 | `lonex_debug_player <id>` | Full diagnostic for player permissions |
+| `lonex_debug_vehicles <id>` | Debug vehicle permissions for player |
+
+---
+
+## 📦 Activity System Exports
+
+```lua
+-- Check if player is on duty
+exports.LonexDiscordAPI:IsOnDuty(source)
+
+-- Get player's current department
+exports.LonexDiscordAPI:GetPlayerDepartment(source)
+
+-- Get full duty info (department, clockIn time, etc.)
+exports.LonexDiscordAPI:GetDutyInfo(source)
+
+-- Get all on-duty players
+exports.LonexDiscordAPI:GetOnDutyPlayers()
+
+-- Get on-duty players by department
+exports.LonexDiscordAPI:GetOnDutyByDepartment('leo')
+
+-- Get department counts
+exports.LonexDiscordAPI:GetDepartmentCounts()
+
+-- Set duty status programmatically
+exports.LonexDiscordAPI:SetDutyStatus(source, true, 'leo')
+
+-- Get duty duration in seconds
+exports.LonexDiscordAPI:GetDutyDuration(source)
+
+-- Get departments player has access to
+exports.LonexDiscordAPI:GetPlayerDepartments(source)
+```
 
 ---
 

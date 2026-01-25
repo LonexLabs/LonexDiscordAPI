@@ -1,8 +1,3 @@
---[[
-    LonexDiscordAPI - Shared Utilities
-    https://github.com/LonexLabs/LonexDiscordAPI
-]]
-
 LonexDiscord = LonexDiscord or {}
 LonexDiscord.Utils = {}
 

@@ -1,8 +1,3 @@
---[[
-    LonexDiscordAPI - HTTP Request Handler
-    https://github.com/LonexLabs/LonexDiscordAPI
-]]
-
 Config = Config or {}
 Config.BotToken = GetConvar('lonex_discord_token', '')
 Config.GuildId = GetConvar('lonex_discord_guild', '')
@@ -42,7 +37,7 @@ local Stats = {
 
 local function GetBucket(route)
     local bucketKey = route:gsub('/%d+', '/:id'):gsub('%?.*$', '')
-    
+
     if not Buckets[bucketKey] then
         Buckets[bucketKey] = {
             remaining = 5,
@@ -51,13 +46,13 @@ local function GetBucket(route)
             resetAfter = 0
         }
     end
-    
+
     return Buckets[bucketKey]
 end
 
 local function UpdateBucket(route, headers)
     local bucket = GetBucket(route)
-    
+
     if headers['x-ratelimit-remaining'] then
         bucket.remaining = tonumber(headers['x-ratelimit-remaining'])
     end
@@ -75,26 +70,26 @@ end
 local function IsBucketLimited(route)
     local bucket = GetBucket(route)
     local now = Utils().GetTimeMs()
-    
+
     if GlobalRateLimit.limited and now < GlobalRateLimit.resetAt then
         return true, GlobalRateLimit.resetAt - now
     end
-    
+
     if bucket.remaining <= 0 and now < bucket.resetAt then
         return true, bucket.resetAt - now
     end
-    
+
     return false, nil
 end
 
 local function ParseHeaders(headerString)
     local headers = {}
     if type(headerString) ~= 'table' then return headers end
-    
+
     for key, value in pairs(headerString) do
         headers[key:lower()] = value
     end
-    
+
     return headers
 end
 
@@ -117,7 +112,7 @@ end
 local function ExecuteRequest(method, endpoint, body, customHeaders)
     local url = BuildUrl(endpoint)
     local headers = BuildHeaders()
-    
+
     if customHeaders then
         for k, v in pairs(customHeaders) do
             headers[k] = v
@@ -166,7 +161,7 @@ local function ProcessRequest(request)
 
     while attempt <= maxRetries do
         local limited, waitTime = IsBucketLimited(route)
-        
+
         if limited then
             if Config.Logging.LogRateLimits then
                 Utils().Debug('Rate limited on %s, waiting %dms', route, waitTime)
@@ -180,7 +175,7 @@ local function ProcessRequest(request)
 
         if response.status == 429 then
             Stats.rateLimitHits = Stats.rateLimitHits + 1
-            
+
             local retryAfter = 1000
             if response.data and response.data.retry_after then
                 retryAfter = response.data.retry_after * 1000
@@ -203,7 +198,7 @@ local function ProcessRequest(request)
             end
         else
             Stats.totalRequests = Stats.totalRequests + 1
-            
+
             if response.success then
                 Stats.successfulRequests = Stats.successfulRequests + 1
                 if Config.Logging.LogSuccess then
@@ -213,7 +208,7 @@ local function ProcessRequest(request)
                 Stats.failedRequests = Stats.failedRequests + 1
                 Utils().Warn('%s %s -> %d: %s', request.method, request.endpoint, response.status, response.error or 'Unknown error')
             end
-            
+
             return response
         end
     end
@@ -227,7 +222,7 @@ local function QueueRequest(request)
 
     request.promise = promise.new()
     table.insert(RequestQueue, request)
-    
+
     if not ProcessingQueue then
         ProcessingQueue = true
         CreateThread(function()

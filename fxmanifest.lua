@@ -4,12 +4,11 @@ game 'gta5'
 name 'LonexDiscordAPI'
 author 'LonexLabs'
 description 'Discord API integration for FiveM'
-version '1.3.0'
+version '1.4.0'
 repository 'https://github.com/LonexLabs/LonexDiscordAPI'
 
 lua54 'yes'
 
--- Permission config file (exec @LonexDiscordAPI/lonexperms.cfg in server.cfg)
 file 'lonexperms.cfg'
 
 shared_scripts {
@@ -27,8 +26,3 @@ server_scripts {
 client_scripts {
     'client/main.lua'
 }
-
--- Dependencies (optional, enhances functionality)
--- dependency 'ox_lib'
-
--- Exports are defined in server/main.lua via runtime registration
